@@ -80,8 +80,6 @@ namespace EdiEnergyExtractor
                 .Where(d => !d.IsGeneralDocument)
                 .OrderBy(d => d.ContainedMessageTypes[0])
                 .ThenBy(d => d.DocumentDate),
-
-                GenerationTime = DateTime.Now
             }, 
             
 #if DEBUG

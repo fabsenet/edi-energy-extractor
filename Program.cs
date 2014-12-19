@@ -27,10 +27,25 @@ namespace EdiEnergyExtractor
             var json = dataExtractor.GetResultAsJson();
             Console.WriteLine(json);
 
-            File.WriteAllText("EdiEnergy.json", json);
+            const string edienergyJsonFile = "EdiEnergy.json";
+            WriteFileIfChanged(edienergyJsonFile, json);
 
             Console.WriteLine("+++Done+++");
             Console.ReadLine();
+        }
+
+        private static void WriteFileIfChanged(string edienergyJsonFile, string json)
+        {
+            if (!File.Exists(edienergyJsonFile) || json != File.ReadAllText(edienergyJsonFile))
+            {
+                Console.WriteLine("Writing file: {0}", edienergyJsonFile);
+                File.WriteAllText(edienergyJsonFile, json);
+            }
+            else
+            {
+                Console.WriteLine("Skipping file write, because nothing changed! ({0})", edienergyJsonFile);
+                
+            }
         }
     }
 }
