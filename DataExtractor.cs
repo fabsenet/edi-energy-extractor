@@ -71,16 +71,11 @@ namespace EdiEnergyExtractor
 
         public string GetResultAsJson()
         {
-            return JsonConvert.SerializeObject(new
-            {
-                GeneralDocuments= _documents
-                .Where(d => d.IsGeneralDocument),
-                
-                MessageTypeDocuments= _documents
-                .Where(d => !d.IsGeneralDocument)
-                .OrderBy(d => d.ContainedMessageTypes[0])
-                .ThenBy(d => d.DocumentDate),
-            }, 
+            return JsonConvert.SerializeObject(_documents
+                .OrderBy(d => !d.IsGeneralDocument)
+                .ThenBy(d => d.ContainedMessageTypes==null ? null : d.ContainedMessageTypes[0])
+                .ThenBy(d => d.DocumentDate)
+            , 
             
 #if DEBUG
             Formatting.Indented, 
