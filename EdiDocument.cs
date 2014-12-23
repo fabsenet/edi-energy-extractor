@@ -2,9 +2,10 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using JetBrains.Annotations;
-using Newtonsoft.Json;
+using Raven.Imports.Newtonsoft.Json;
 
 namespace EdiEnergyExtractor
 {
@@ -13,7 +14,7 @@ namespace EdiEnergyExtractor
         private string[] _containedMessageTypes;
 
         [UsedImplicitly]
-        [JsonIgnore]
+        [Newtonsoft.Json.JsonIgnore][JsonIgnore]
         public bool IsCurrent { get; set; }
 
         [UsedImplicitly]
@@ -23,6 +24,20 @@ namespace EdiEnergyExtractor
             {
                 return _documentNameRaw.Split('\n','\r').First();
             }
+        }
+
+        [UsedImplicitly]
+        public string Id
+        {
+            get
+            {
+                if (_id == null)
+                {
+                    _id = string.Format("EdiDocuments/{0}", Path.GetFileNameWithoutExtension(DocumentUri.AbsolutePath));
+                }
+                return _id;
+            }
+            set { _id = value; }
         }
 
         [UsedImplicitly]
@@ -53,7 +68,7 @@ namespace EdiEnergyExtractor
         [UsedImplicitly]
         public bool IsGeneralDocument
         {
-            get { return ContainedMessageTypes == null || !ContainedMessageTypes.Any(); }
+            get { return !IsMig && !IsAhb; }
         }
 
         [UsedImplicitly]
@@ -76,6 +91,7 @@ namespace EdiEnergyExtractor
 
         private readonly CultureInfo _germanCulture = new CultureInfo("de-DE");
         private string _documentNameRaw;
+        private string _id;
 
         [UsedImplicitly]
         public DateTime DocumentDate
@@ -118,14 +134,13 @@ namespace EdiEnergyExtractor
         {
             get
             {
-                if (IsGeneralDocument) return null;
                 if (IsMig) return null;
                 return EdiConstants.EdiProcesses.SingleOrDefault(p => DocumentNameRaw.Contains(p));
             }
         }
 
         [UsedImplicitly]
-        [JsonIgnore]
+        [Newtonsoft.Json.JsonIgnore]
         public string DocumentNameRaw
         {
             get { return _documentNameRaw; }

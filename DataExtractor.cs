@@ -87,5 +87,10 @@ namespace EdiEnergyExtractor
                 NullValueHandling = NullValueHandling.Ignore
             });
         }
+
+        public List<EdiDocument> Documents
+        {
+            get { return _documents; }
+        }
     }
 }

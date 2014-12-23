@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Raven.Client.Document;
 
 namespace EdiEnergyExtractor
 {
@@ -25,6 +26,7 @@ namespace EdiEnergyExtractor
             dataExtractor.AnalyzeResult();
 
             var json = dataExtractor.GetResultAsJson();
+            StoreOrUpdateInRavenDb(dataExtractor.Documents);
             Console.WriteLine(json);
 
             const string edienergyJsonFile = "EdiEnergy.json";
@@ -32,6 +34,23 @@ namespace EdiEnergyExtractor
 
             Console.WriteLine("+++Done+++");
             Console.ReadLine();
+        }
+
+        private static void StoreOrUpdateInRavenDb(List<EdiDocument> ediDocuments)
+        {
+            var database = new DocumentStore()
+            {
+                ConnectionStringName = "RavenDB"
+            }.Initialize();
+
+            using (var session = database.OpenSession())
+            {
+                foreach (var ediDocument in ediDocuments)
+                {
+                    session.Store(ediDocument);                    
+                }
+                session.SaveChanges();
+            }
         }
 
         private static void WriteFileIfChanged(string edienergyJsonFile, string json)
