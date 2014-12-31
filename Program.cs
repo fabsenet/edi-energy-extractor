@@ -2,11 +2,9 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using Raven.Client.Document;
 
-namespace EdiEnergyExtractor
+namespace Fabsenet.EdiEnergy
 {
     class Program
     {

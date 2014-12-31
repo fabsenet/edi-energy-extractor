@@ -7,7 +7,7 @@ using System.Net.Http;
 using HtmlAgilityPack;
 using Newtonsoft.Json;
 
-namespace EdiEnergyExtractor
+namespace Fabsenet.EdiEnergy
 {
     internal class DataExtractor
     {

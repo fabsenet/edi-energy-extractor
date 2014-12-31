@@ -2,19 +2,18 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using JetBrains.Annotations;
-using Raven.Imports.Newtonsoft.Json;
+using Newtonsoft.Json;
 
-namespace EdiEnergyExtractor
+namespace Fabsenet.EdiEnergy
 {
     public class EdiDocument
     {
         private string[] _containedMessageTypes;
 
         [UsedImplicitly]
-        [Newtonsoft.Json.JsonIgnore][JsonIgnore]
+        [JsonIgnore][Raven.Imports.Newtonsoft.Json.JsonIgnore]
         public bool IsCurrent { get; set; }
 
         [UsedImplicitly]
@@ -140,7 +139,7 @@ namespace EdiEnergyExtractor
         }
 
         [UsedImplicitly]
-        [Newtonsoft.Json.JsonIgnore]
+        [JsonIgnore]
         public string DocumentNameRaw
         {
             get { return _documentNameRaw; }

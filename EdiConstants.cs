@@ -1,4 +1,4 @@
-﻿namespace EdiEnergyExtractor
+﻿namespace Fabsenet.EdiEnergy
 {
     public class EdiConstants
     {

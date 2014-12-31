@@ -7,7 +7,7 @@
     <ProjectGuid>{2F04450D-C50A-4FC5-9D8B-9679D089BDF3}</ProjectGuid>
     <OutputType>Exe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>EdiEnergyExtractor</RootNamespace>
+    <RootNamespace>Fabsenet.EdiEnergy</RootNamespace>
     <AssemblyName>EdiEnergyExtractor</AssemblyName>
     <TargetFrameworkVersion>v4.5.1</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
