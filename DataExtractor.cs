@@ -48,6 +48,25 @@ namespace Fabsenet.EdiEnergy
                             ValidTo = ConvertToDateTime(tr.SelectSingleNode(".//td[4]"))
                         })
                 .ToList();
+
+            //determine what the latest document version is
+            var documentGroups = from doc in _documents
+                group doc by new
+                {
+                    doc.BdewProcess, 
+                    doc.ValidFrom, 
+                    doc.ValidTo, 
+                    doc.IsAhb,
+                    doc.IsMig,
+                    doc.IsGeneralDocument,
+                    ContainedMessageTypesString = doc.ContainedMessageTypes!= null && doc.ContainedMessageTypes.Any() ? doc.ContainedMessageTypes.Aggregate((m1,m2)=>m1+", "+m2) : null
+                }
+                into g
+                select g;
+
+            var newestDocumentsInEachGroup = documentGroups.Select(g => g.OrderByDescending(doc => doc.DocumentDate).First()).ToList();
+
+            newestDocumentsInEachGroup.ForEach(doc => doc.IsLatestVersion = true);
         }
 
         private readonly CultureInfo _germanCulture = new CultureInfo("de-DE");

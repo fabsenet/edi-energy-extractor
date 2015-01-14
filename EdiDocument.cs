@@ -152,5 +152,9 @@ namespace Fabsenet.EdiEnergy
                 _containedMessageTypes = containedMessageTypes.Any() ? containedMessageTypes : null;
             }
         }
+
+        [UsedImplicitly]
+        public bool IsLatestVersion { get; set; }
+
     }
 }
