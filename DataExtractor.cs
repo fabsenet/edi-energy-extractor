@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text;
 using HtmlAgilityPack;
 using Newtonsoft.Json;
 
@@ -11,13 +12,13 @@ namespace Fabsenet.EdiEnergy
 {
     internal class DataExtractor
     {
-        string rootHtml;
-        Uri baseUri = new Uri("http://edi-energy.de");
+        string _rootHtml;
+        readonly Uri _baseUri = new Uri("http://edi-energy.de");
 
         public void LoadFromFile(string rootPath)
         {
             if (!File.Exists(rootPath)) { throw new FileNotFoundException("Root file not found. (Expected location: '" + rootPath + "')"); }
-            rootHtml = File.ReadAllText(rootPath);
+            _rootHtml = File.ReadAllText(rootPath);
         }
 
         public void LoadFromWeb()
@@ -25,13 +26,21 @@ namespace Fabsenet.EdiEnergy
             var client = new HttpClient();
             var responseMessage = client.GetAsync("http://edi-energy.de").Result;
             responseMessage.EnsureSuccessStatusCode();
-            rootHtml = responseMessage.Content.ReadAsStringAsync().Result;
+
+
+            //sure, why not use windows encoding without telling anybody in http- or html- header?
+            //what could possibly go wrong? :D
+            //UTF8 (default): Erg�nzende Beschreibung
+            //ANSII: Erg?nzende Beschreibung
+            //1252 (Windows): Ergänzende Beschreibung
+            var responseBytes = responseMessage.Content.ReadAsByteArrayAsync().Result;
+            _rootHtml = Encoding.GetEncoding(1252).GetString(responseBytes);
         }
 
         public void AnalyzeResult()
         {
             var htmlDoc = new HtmlDocument();
-            htmlDoc.LoadHtml(rootHtml);
+            htmlDoc.LoadHtml(_rootHtml);
 
             //select all data rows from table
             _documents = htmlDoc
@@ -43,7 +52,7 @@ namespace Fabsenet.EdiEnergy
                         {
                             IsCurrent = tr.SelectSingleNode(".//td[1]").InnerText.Contains("*"),
                             DocumentNameRaw = tr.SelectSingleNode(".//td[2]").InnerText.Trim(),
-                            DocumentUri = new Uri(baseUri, tr.SelectSingleNode(".//td[2]//a[@href]").GetAttributeValue("href", "")),
+                            DocumentUri = new Uri(_baseUri, tr.SelectSingleNode(".//td[2]//a[@href]").GetAttributeValue("href", "")),
                             ValidFrom = ConvertToDateTime(tr.SelectSingleNode(".//td[3]")),
                             ValidTo = ConvertToDateTime(tr.SelectSingleNode(".//td[4]"))
                         })

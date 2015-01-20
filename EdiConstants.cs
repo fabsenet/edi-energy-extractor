@@ -9,7 +9,7 @@
 
         public static readonly string[] EdiProcesses =
         {
-            "GPKE GeLi Gas", "MaBiS", "WiM", "Einspeiser", "Netzbetreiberwechsel", "Geschäftsdatenanfrage"
+            "GPKE GeLi Gas", "MaBiS", "WiM", "Einspeiser", "Netzbetreiberwechsel", "Geschäftsdatenanfrage", "HKNR"
         };
     }
 }
