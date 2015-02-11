@@ -1,160 +1,217 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using JetBrains.Annotations;
 using Newtonsoft.Json;
+using NLog;
+using Raven.Abstractions.Extensions;
+using ServiceStack.Text;
 
 namespace Fabsenet.EdiEnergy
 {
     public class EdiDocument
     {
-        private string[] _containedMessageTypes;
+        private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 
-        [UsedImplicitly]
-        [JsonIgnore][Raven.Imports.Newtonsoft.Json.JsonIgnore]
-        public bool IsCurrent { get; set; }
 
-        [UsedImplicitly]
-        public string DocumentName
+        public EdiDocument()
         {
-            get
-            {
-                return _documentNameRaw.Split('\n','\r').First();
-            }
+            
         }
 
-        [UsedImplicitly]
-        public string Id
+        public EdiDocument(string documentNameRaw, Uri documentUri, DateTime? validFrom, DateTime? validTo) : this()
         {
-            get
-            {
-                if (_id == null)
-                {
-                    _id = string.Format("EdiDocuments/{0}", Path.GetFileNameWithoutExtension(DocumentUri.AbsolutePath));
-                }
-                return _id;
-            }
-            set { _id = value; }
+            DocumentNameRaw = Regex.Replace(documentNameRaw, "[ ]+", " ");
+            DocumentUri = documentUri;
+            ValidFrom = validFrom;
+            ValidTo = validTo;
+            
+            var containedMessageTypes = EdiConstants.MessageTypes.Where(mt => DocumentNameRaw.Contains(mt)).ToArray();
+            ContainedMessageTypes = containedMessageTypes.Any() ? containedMessageTypes : null;
+
+            Id = String.Format("EdiDocuments/{0}", Path.GetFileNameWithoutExtension(DocumentUri.AbsolutePath));
+            DocumentName = DocumentNameRaw.Split('\n', '\r').First();
+            IsMig = DocumentNameRaw.Contains("MIG");
+            BdewProcess = IsMig ? null : EdiConstants.EdiProcesses.SingleOrDefault(p => DocumentNameRaw.Contains(p));
+            IsAhb = DocumentNameRaw.Contains("AHB") || BdewProcess != null;
+            DocumentDate = GuessDocumentDateFromDocumentNameRawOrFilename();
+
+
+            IsGeneralDocument = !IsMig && !IsAhb;
+
+            MessageTypeVersion = GetMessageTypeVersion();
         }
 
-        [UsedImplicitly]
+
         public Uri DocumentUri { get; set; }
-        [UsedImplicitly]
+        public Uri MirrorUri { get; set; }
         public DateTime? ValidFrom { get; set; }
-        [UsedImplicitly]
-        public DateTime? ValidTo { get; set; }
+        public DateTime? ValidTo { get; set; }   
+        public string DocumentName { get; private set; }
+        public string Id { get; private set; }
+        public bool IsMig { get; private set; }
+        public bool IsAhb { get; private set; }
+        public string[] ContainedMessageTypes { get; private set; }
 
-        [UsedImplicitly]
-        public bool IsMig
-        {
-            get { return DocumentNameRaw.Contains("MIG"); }
-        }
+        public bool IsGeneralDocument { get; private set; }
 
-        [UsedImplicitly]
-        public bool IsAhb
-        {
-            get { return DocumentNameRaw.Contains("AHB") || BdewProcess!=null; }
-        }
+        public string MessageTypeVersion { get; private set; }
 
-        [UsedImplicitly]
-        public string[] ContainedMessageTypes
+        private string GetMessageTypeVersion()
         {
-            get { return _containedMessageTypes; }
-        }
+            if (IsGeneralDocument) return null;
 
-        [UsedImplicitly]
-        public bool IsGeneralDocument
-        {
-            get { return !IsMig && !IsAhb; }
-        }
-
-        [UsedImplicitly]
-        public string MessageTypeVersion
-        {
-            get
+            var regex = new Regex(@"(\d\.\d[a-z]{0,1})");
+            var match = regex.Match(DocumentNameRaw);
+            if (!match.Success)
             {
-                if (IsGeneralDocument) return null;
-
-                var regex = new Regex(@"(\d\.\d[a-z]{0,1})");
-                var match = regex.Match(DocumentNameRaw);
-                if (!match.Success)
-                {
-                    return null;
-                }
-
-                return match.Groups[1].Value;
+                return null;
             }
+
+            return match.Groups[1].Value;
         }
 
-        private readonly CultureInfo _germanCulture = new CultureInfo("de-DE");
-        private string _documentNameRaw;
-        private string _id;
+        private static readonly CultureInfo _germanCulture = new CultureInfo("de-DE");
 
-        [UsedImplicitly]
-        public DateTime DocumentDate
+        public DateTime DocumentDate { get; private set; }
+
+        private DateTime GuessDocumentDateFromDocumentNameRawOrFilename()
         {
-            get
+            DateTime date;
+            if (DocumentNameRaw.Contains("Stand:"))
             {
-                if (DocumentNameRaw.Contains("Stand:"))
-                {
-                    //"UTILMD AHB GPKE GeLi Gas 6.0a\r\n Konsolidierte Lesefassung mit Fehlerkorrekturen\r\n Stand: 29. August 2014"
-                    var dateString = DocumentNameRaw.Split(new[] {"Stand:"}, StringSplitOptions.None)[1].Trim();
+                //"UTILMD AHB GPKE GeLi Gas 6.0a\r\n Konsolidierte Lesefassung mit Fehlerkorrekturen\r\n Stand: 29. August 2014"
+                var dateString = DocumentNameRaw.Split(new[] {"Stand:"}, StringSplitOptions.None)[1].Trim();
 
-                    var date = DateTime.Parse(dateString, _germanCulture);
-
-                    return date;
-                }
-
+                date = DateTime.Parse(dateString, _germanCulture);
+            }
+            else
+            {
                 //alternatively try parsing the date from the file name
                 var filename = Path.GetFileNameWithoutExtension(DocumentUri.AbsoluteUri);
 
                 //could be like "APERAK_MIG_2_1a_2014_04_01"
                 if (Regex.IsMatch(filename, @"_\d{4}_\d{2}_\d{2}$"))
                 {
-                    var date = DateTime.ParseExact(filename.Substring(filename.Length - 10), "yyyy_MM_dd", _germanCulture);
-                    return date;
+                    date = DateTime.ParseExact(filename.Substring(filename.Length - 10), "yyyy_MM_dd", _germanCulture);
                 }
 
                 //could be like "CONTRL-APERAK_AHB_2_3a_20141001"
-                if (Regex.IsMatch(filename, @"_\d{8}$"))
+                else if (Regex.IsMatch(filename, @"_\d{8}$"))
                 {
-                    var date = DateTime.ParseExact(filename.Substring(filename.Length - 8), "yyyyMMdd", _germanCulture);
-                    return date;
+                    date = DateTime.ParseExact(filename.Substring(filename.Length - 8), "yyyyMMdd", _germanCulture);
                 }
-
-                throw new Exception("Could not guess the document date for '"+DocumentUri+"'");
+                else
+                {
+                    throw new Exception("Could not guess the document date for '" + DocumentUri + "'");
+                }
             }
+            return date;
         }
 
-        [UsedImplicitly]
-        public string BdewProcess
-        {
-            get
-            {
-                if (IsMig) return null;
-                return EdiConstants.EdiProcesses.SingleOrDefault(p => DocumentNameRaw.Contains(p));
-            }
-        }
+        public string BdewProcess { get; private set; }
 
-        [UsedImplicitly]
-        [JsonIgnore]
-        public string DocumentNameRaw
-        {
-            get { return _documentNameRaw; }
-            set
-            {
-                _documentNameRaw = Regex.Replace(value, "[ ]+", " ");
+        public string DocumentNameRaw { get; private set; }
 
-
-                var containedMessageTypes = EdiConstants.MessageTypes.Where(mt => DocumentNameRaw.Contains(mt)).ToArray();
-                _containedMessageTypes = containedMessageTypes.Any() ? containedMessageTypes : null;
-            }
-        }
-
-        [UsedImplicitly]
         public bool IsLatestVersion { get; set; }
 
+
+        public string[] TextContentPerPage
+        {
+            get { return _textContentPerPage; }
+            set
+            {
+                _textContentPerPage = value;
+                if (value != null)
+                {
+                    BuildCheckIdentifierList();
+                }
+            }
+        }
+        private string[] _textContentPerPage;
+
+        public Dictionary<int, List<int>> CheckIdentifier { get; private set; }
+
+        private static readonly Dictionary<string, string> _checkIdentifierPatternPerMessageType = new Dictionary<string, string>()
+        {
+            {"UTILMD", "11"},
+            {"MSCONS", "13"},
+            {"QUOTES", "15"},
+            {"ORDERS", "17"},
+            {"ORDRSP", "19"},
+            {"IFTSTA", "21"},
+            {"INSRPT", "23"},
+            {"INVOIC", "31"},
+            {"REMADV", "33"},
+            {"REQOTE", "35"},
+        };
+
+        private void BuildCheckIdentifierList()
+        {
+            _log.Trace("BuildCheckIdentifierList() called.");
+
+            if (!IsAhb)
+            {
+                _log.Debug("this is not an AHB document, so there should not be any checkIdentifier. Exiting BuildCheckIdentifierList()");
+                return;
+            }
+
+            if (ContainedMessageTypes == null || !ContainedMessageTypes.Any() || !ContainedMessageTypes.Any(msgType => _checkIdentifierPatternPerMessageType.ContainsKey(msgType)))
+            {
+                CheckIdentifier = null;
+                return;
+            }
+            
+            _log.Trace("Building stronger pattern based on ContainedMessageTypes: {0}", ContainedMessageTypes.Dump());
+            //    (?:11\d{3})
+
+            var pattern = "(" + 
+                ContainedMessageTypes
+                .Where(msg => _checkIdentifierPatternPerMessageType.ContainsKey(msg))
+                .Select(msg => _checkIdentifierPatternPerMessageType[msg])
+                .Select(part => @"(?:" + part + @"\d{3})")
+                .Aggregate((p1, p2) => p1 + "|" + p2) 
+                + ")";
+
+            _log.Debug("refined checkidentifier regex pattern to {0} based on contained messagetypes {1}", pattern, ContainedMessageTypes.Dump());
+            var result = new Dictionary<int, List<int>>();
+
+            var pagenum = 0;
+            foreach (var text in TextContentPerPage)
+            {
+                pagenum++;
+
+                var ids = Regex.Matches(text, pattern)
+                    .OfType<Match>()
+                    .Select(match => match.Value)
+                    .Where(id => ContainedMessageTypes == null || ContainedMessageTypes
+                        .Select(msgType => _checkIdentifierPatternPerMessageType.GetOrDefault(msgType))
+                        .Where(prefix => prefix != null)
+                        .Any(prefix => id.StartsWith(prefix))
+                    )
+                    .Select(id => Convert.ToInt32(id))
+                    .Distinct()
+                    .OrderBy(id => id)
+                    .ToList();
+
+                if (ids.Any())
+                {
+                    foreach (var id in ids)
+                    {
+                        result.GetOrAdd(id).Add(pagenum);
+                    }
+                }
+            }
+            if (result.Any())
+            {
+                _log.Debug("Extracted checkIdentifiers: {0}", result.Dump());
+                CheckIdentifier = result;
+            }
+            _log.Debug("Extracted no checkIdentifiers");
+        }
     }
 }

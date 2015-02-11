@@ -1,13 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
-using System.Net.Http;
 using System.Threading.Tasks;
 using NLog;
-using Raven.Abstractions.FileSystem;
-using Raven.Client.Document;
-using Raven.Client.FileSystem;
-using Raven.Json.Linq;
 
 namespace Fabsenet.EdiEnergy
 {
@@ -25,6 +20,11 @@ namespace Fabsenet.EdiEnergy
             catch (Exception ex)
             {
                 _log.Fatal("Unhandled exception! {0}", ex.ToString());
+
+                if (Debugger.IsAttached)
+                {
+                    Debugger.Break();
+                }
             }
         }
 
@@ -44,59 +44,10 @@ namespace Fabsenet.EdiEnergy
             }
 
             dataExtractor.AnalyzeResult();
-            await StoreOrUpdateInRavenDb(dataExtractor.Documents);
+            await DataExtractor.StoreOrUpdateInRavenDb(dataExtractor.Documents);
 
+            await DataExtractor.UpdateExistingEdiDocuments();
             _log.Debug("Done");
-        }
-
-        private static async Task StoreOrUpdateInRavenDb(List<EdiDocument> ediDocuments)
-        {
-            _log.Debug("Saving " + ediDocuments.Count + " documents to ravendb");
-
-            var database = new DocumentStore()
-            {
-                ConnectionStringName = "RavenDB"
-            }.Initialize(true);
-
-            using (var session = database.OpenAsyncSession())
-            {
-                foreach (var ediDocument in ediDocuments)
-                {
-                    await DownloadMirror(ediDocument);
-                    await session.StoreAsync(ediDocument);
-                }
-                await session.SaveChangesAsync();
-            }
-        }
-
-        private static async Task DownloadMirror(EdiDocument ediDocument)
-        {
-            _log.Debug("testing mirror file availability for {0}", ediDocument.Id);
-            var filesystem = new FilesStore() {ConnectionStringName = "RavenFS"}.Initialize(true);
-            using (var session = filesystem.OpenAsyncSession())
-            {
-                var file = await session.Query()
-                    .WhereEquals("OriginalUri", ediDocument.DocumentUri.ToString())
-                    .FirstOrDefaultAsync();
-
-                _log.Debug(file == null ? "The file does not exist" : "the file is mirrored");
-
-                if (file == null)
-                {
-                    _log.Debug("Downloading copy of ressource '{0}'", ediDocument.DocumentUri);
-                    var client = new HttpClient();
-                    var responseMessage = await client.GetAsync(ediDocument.DocumentUri);
-                    responseMessage.EnsureSuccessStatusCode();
-
-                    session.RegisterUpload(new FileHeader(ediDocument.Id, new RavenJObject()
-                    {
-                        {"OriginalUri", new RavenJValue(ediDocument.DocumentUri.ToString())}
-                    }), await responseMessage.Content.ReadAsStreamAsync());
-
-                    await session.SaveChangesAsync();
-                    _log.Debug("Stored copy of ressource '{0}'", ediDocument.DocumentUri);
-                }
-            }
         }
     }
 }
