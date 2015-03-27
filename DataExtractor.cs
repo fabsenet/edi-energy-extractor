@@ -13,10 +13,12 @@ using HtmlAgilityPack;
 using iTextSharp.text.pdf;
 using iTextSharp.text.pdf.parser;
 using NLog;
+using Raven.Abstractions.Extensions;
 using Raven.Abstractions.FileSystem;
 using Raven.Client;
 using Raven.Client.Document;
 using Raven.Client.FileSystem;
+using Raven.Client.Linq;
 using Raven.Json.Linq;
 using ServiceStack.Text;
 
@@ -64,9 +66,8 @@ namespace Fabsenet.EdiEnergy
         {
             using (var session = _ravenDb.Value.OpenAsyncSession())
             {
-                var doc = await session
-                    .Query<EdiDocument>()
-                    .Where(d => d.DocumentUri == documentUri)
+                var doc = await Queryable.Where(session
+                        .Query<EdiDocument>(), d => d.DocumentUri == documentUri)
                     .FirstOrDefaultAsync();
 
                 return doc;
@@ -89,10 +90,22 @@ namespace Fabsenet.EdiEnergy
                     ValidFrom = ConvertToDateTime(tr.SelectSingleNode(".//td[3]")),
                     ValidTo = ConvertToDateTime(tr.SelectSingleNode(".//td[4]"))
                 })
-                .Select(tr => FetchExistingEdiDocument(tr.DocumentUri).Result ?? new EdiDocument(tr.DocumentNameRaw, tr.DocumentUri, tr.ValidFrom, tr.ValidTo))
+                .Select(tr =>
+                {
+                    var fetchedDocument = FetchExistingEdiDocument(tr.DocumentUri).Result;
+                    if (fetchedDocument != null)
+                    {
+                        fetchedDocument.ValidTo = tr.ValidTo;
+                        fetchedDocument.ValidFrom = tr.ValidFrom;
+                    }
+                    return fetchedDocument ?? new EdiDocument(tr.DocumentNameRaw, tr.DocumentUri, tr.ValidFrom, tr.ValidTo);
+                })
                 .ToList();
 
-            //determine what the latest document version is
+            //reset current latest document
+            _documents.ForEach(doc => doc.IsLatestVersion = false);
+
+            //determine what the latest document version is again
             var documentGroups = from doc in _documents
                 group doc by new
                 {
@@ -168,6 +181,21 @@ namespace Fabsenet.EdiEnergy
 
             using (var session = _ravenDb.Value.OpenAsyncSession())
             {
+                IQueryable<EdiDocument> allExtraEdiDocs = session.Query<EdiDocument>();
+                foreach (var document in ediDocuments)
+                {
+                    var document1 = document;
+                    allExtraEdiDocs = allExtraEdiDocs.Where(doc => doc.DocumentUri != document1.DocumentUri);
+                }
+
+                var extraDocs = await allExtraEdiDocs.ToListAsync();
+                foreach (var extraDoc in extraDocs)
+                {
+                    //this document was on the ediEnergy page some time ago but it is not there anymore
+                    extraDoc.IsLatestVersion = false;
+                    await session.StoreAsync(extraDoc);
+                }
+
                 foreach (var ediDocument in ediDocuments)
                 {
                     await CreateMirrorAndAnalyzePdfContent(ediDocument);
@@ -277,10 +305,9 @@ namespace Fabsenet.EdiEnergy
         {
             using (var session = _ravenDb.Value.OpenAsyncSession())
             {
-                var notMirroredDocuments = await session
-                    .Query<EdiDocument>()
-                    .Customize(c => c.WaitForNonStaleResults())
-                    .Where(doc => doc.MirrorUri == null)
+                var notMirroredDocuments = await Queryable.Where(session
+                        .Query<EdiDocument>()
+                        .Customize(c => c.WaitForNonStaleResults()), doc => doc.MirrorUri == null)
                     .ToListAsync();
 
                 _log.Debug("Found {0} documents which are not mirrored!", notMirroredDocuments.Count);
