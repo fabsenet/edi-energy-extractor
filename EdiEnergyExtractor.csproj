@@ -58,7 +58,7 @@
     <GenerateManifests>true</GenerateManifests>
   </PropertyGroup>
   <PropertyGroup>
-    <SignManifests>true</SignManifests>
+    <SignManifests>false</SignManifests>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="HtmlAgilityPack">
@@ -79,11 +79,11 @@
     </Reference>
     <Reference Include="Raven.Abstractions, Version=3.0.0.0, Culture=neutral, PublicKeyToken=37f41c7f99471593, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\ayende\ravendb\build\Output\Client\Raven.Abstractions.dll</HintPath>
+      <HintPath>..\..\ravendb\build\Output\Client\Raven.Abstractions.dll</HintPath>
     </Reference>
     <Reference Include="Raven.Client.Lightweight, Version=3.0.0.0, Culture=neutral, PublicKeyToken=37f41c7f99471593, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\ayende\ravendb\build\Output\Client\Raven.Client.Lightweight.dll</HintPath>
+      <HintPath>..\..\ravendb\build\Output\Client\Raven.Client.Lightweight.dll</HintPath>
     </Reference>
     <Reference Include="ServiceStack.Text, Version=4.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
@@ -107,7 +107,6 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="CodeAnnotations.cs" />
     <Compile Include="DataExtractor.cs" />
     <Compile Include="EdiConstants.cs" />
     <Compile Include="EdiDocument.cs" />

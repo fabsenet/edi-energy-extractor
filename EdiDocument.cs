@@ -31,12 +31,31 @@ namespace Fabsenet.EdiEnergy
             ValidTo = validTo;
             
             var containedMessageTypes = EdiConstants.MessageTypes.Where(mt => DocumentNameRaw.Contains(mt)).ToArray();
+            if (!containedMessageTypes.Any() && DocumentNameRaw.Contains("Herkunftsnachweisregister"))
+            {
+                //hknr files do not have the message types in the file name
+                containedMessageTypes = new[] {"ORDERS", "ORDRSP", "UTILMD", "MSCONS"};
+            }
             ContainedMessageTypes = containedMessageTypes.Any() ? containedMessageTypes : null;
 
-            Id = String.Format("EdiDocuments/{0}", Path.GetFileNameWithoutExtension(DocumentUri.AbsolutePath));
+            Id = $"EdiDocuments/{Path.GetFileNameWithoutExtension(DocumentUri.AbsolutePath)}";
+
             DocumentName = DocumentNameRaw.Split('\n', '\r').First();
             IsMig = DocumentNameRaw.Contains("MIG");
-            BdewProcess = IsMig ? null : EdiConstants.EdiProcesses.SingleOrDefault(p => DocumentNameRaw.Contains(p));
+
+            if (IsMig)
+            {
+                BdewProcess = null;
+            }
+            else
+            {
+                BdewProcess = EdiConstants
+                    .EdiProcesses
+                    .Where(p => p.Value.Any(v => DocumentNameRaw.Contains(v)))
+                    .Select(p => p.Key)
+                    .SingleOrDefault();
+            }
+
             IsAhb = DocumentNameRaw.Contains("AHB") || BdewProcess != null;
             DocumentDate = GuessDocumentDateFromDocumentNameRawOrFilename();
 
