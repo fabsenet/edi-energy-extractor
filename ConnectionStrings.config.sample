@@ -1,0 +1,5 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<connectionStrings>
+  <add name="RavenDB" connectionString="*** INSERT YOUR CONNECTION STRING HERE ***" />
+  <add name="RavenFS" connectionString="*** INSERT YOUR CONNECTION STRING HERE ***" />
+</connectionStrings>
