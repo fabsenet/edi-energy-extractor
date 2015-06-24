@@ -230,7 +230,10 @@ namespace Fabsenet.EdiEnergy
                 _log.Debug("Extracted checkIdentifiers: {0}", result.Dump());
                 CheckIdentifier = result;
             }
-            _log.Debug("Extracted no checkIdentifiers");
+            else
+            {
+                _log.Debug("Extracted no checkIdentifiers");
+            }
         }
     }
 }
