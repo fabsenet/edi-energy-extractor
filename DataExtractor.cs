@@ -304,7 +304,7 @@ namespace Fabsenet.EdiEnergy
             {
                 var notMirroredDocuments = await Queryable.Where(session
                         .Query<EdiDocument>()
-                        .Customize(c => c.WaitForNonStaleResults()), doc => doc.MirrorUri == null)
+                        .Customize(c => c.WaitForNonStaleResultsAsOfNow()), doc => doc.MirrorUri == null)
                     .ToListAsync();
 
                 _log.Debug("Found {notMirroredDocumentsCount} documents which are not mirrored!", notMirroredDocuments.Count);
