@@ -3,19 +3,15 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text.RegularExpressions;
-using JetBrains.Annotations;
-using Newtonsoft.Json;
-using NLog;
 using Raven.Abstractions.Extensions;
-using ServiceStack.Text;
+using Serilog;
 
 namespace Fabsenet.EdiEnergy
 {
     public class EdiDocument
     {
-        private static readonly Logger _log = LogManager.GetCurrentClassLogger();
+        private static readonly ILogger _log = Log.ForContext<EdiDocument>();
 
 
         public EdiDocument()
@@ -171,7 +167,7 @@ namespace Fabsenet.EdiEnergy
 
         private void BuildCheckIdentifierList()
         {
-            _log.Trace("BuildCheckIdentifierList() called.");
+            _log.Verbose("BuildCheckIdentifierList() called.");
 
             if (!IsAhb)
             {
@@ -185,7 +181,7 @@ namespace Fabsenet.EdiEnergy
                 return;
             }
             
-            _log.Trace("Building stronger pattern based on ContainedMessageTypes: {0}", ContainedMessageTypes.Dump());
+            _log.Verbose("Building stronger pattern based on ContainedMessageTypes: {ContainedMessageTypes}", ContainedMessageTypes);
             //    (?:11\d{3})
 
             var pattern = "(" + 
@@ -196,7 +192,7 @@ namespace Fabsenet.EdiEnergy
                 .Aggregate((p1, p2) => p1 + "|" + p2) 
                 + ")";
 
-            _log.Debug("refined checkidentifier regex pattern to {0} based on contained messagetypes {1}", pattern, ContainedMessageTypes.Dump());
+            _log.Debug("refined checkidentifier regex pattern to {pattern} based on contained messagetypes {ContainedMessageTypes}", pattern, ContainedMessageTypes);
             var result = new Dictionary<int, List<int>>();
 
             var pagenum = 0;
@@ -227,7 +223,7 @@ namespace Fabsenet.EdiEnergy
             }
             if (result.Any())
             {
-                _log.Debug("Extracted checkIdentifiers: {0}", result.Dump());
+                _log.Debug("Extracted checkIdentifiers: {result}", result);
                 CheckIdentifier = result;
             }
             else

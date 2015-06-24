@@ -7,36 +7,33 @@ using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using HtmlAgilityPack;
 using iTextSharp.text.pdf;
 using iTextSharp.text.pdf.parser;
-using NLog;
-using Raven.Abstractions.Extensions;
 using Raven.Abstractions.FileSystem;
 using Raven.Client;
 using Raven.Client.Document;
 using Raven.Client.FileSystem;
-using Raven.Client.Linq;
 using Raven.Json.Linq;
-using ServiceStack.Text;
+using Serilog;
+using Path = System.IO.Path;
 
 namespace Fabsenet.EdiEnergy
 {
     internal class DataExtractor
     {
-        private static readonly Logger _log = LogManager.GetCurrentClassLogger();
+        private static readonly ILogger _log = Log.ForContext<DataExtractor>();
 
         private string _rootHtml;
         private readonly Uri _baseUri = new Uri("http://edi-energy.de");
 
         public void LoadFromFile(string rootPath)
         {
-            _log.Warn("Loading source data from file: {0}", rootPath);
+            _log.Warning("Loading source data from file: {rootPath}", rootPath);
             if (!File.Exists(rootPath))
             {
-                _log.Error("the source file does not exist. Its expected path was: {0}", rootPath);
+                _log.Error("the source file does not exist. Its expected path was: {rootPath}", rootPath);
                 throw new FileNotFoundException("Root file not found. (Expected location: '" + rootPath + "')");
             }
             _rootHtml = File.ReadAllText(rootPath);
@@ -47,7 +44,7 @@ namespace Fabsenet.EdiEnergy
             _log.Debug("Loading source data from web.");
             var client = new HttpClient();
             var responseMessage = client.GetAsync("http://edi-energy.de").Result;
-            _log.Debug("HTTP Status Code is {0}", responseMessage.StatusCode);
+            _log.Debug("HTTP Status Code is {StatusCode}", responseMessage.StatusCode);
             responseMessage.EnsureSuccessStatusCode();
 
 
@@ -57,8 +54,8 @@ namespace Fabsenet.EdiEnergy
             //ANSII: Erg?nzende Beschreibung
             //1252 (Windows): Ergänzende Beschreibung
             var responseBytes = responseMessage.Content.ReadAsByteArrayAsync().Result;
-            _log.Debug("Receive response with {0} bytes.", responseBytes.Length);
-            _log.Warn("Assuming Windows encoding 1252 to parse text.");
+            _log.Debug("Receive response with {ResponseLength} bytes.", responseBytes.Length);
+            _log.Warning("Assuming Windows encoding 1252 to parse text.");
             _rootHtml = Encoding.GetEncoding(1252).GetString(responseBytes);
         }
 
@@ -131,7 +128,7 @@ namespace Fabsenet.EdiEnergy
 
         private static readonly Lazy<IFilesStore> _ravenFs = new Lazy<IFilesStore>(() =>
         {
-            _log.Trace("Initializing RavenFS FilesStore");
+            _log.Verbose("Initializing RavenFS FilesStore");
             var store = new FilesStore()
             {
                 ConnectionStringName = "RavenFS"
@@ -144,7 +141,7 @@ namespace Fabsenet.EdiEnergy
 
         private static readonly Lazy<IDocumentStore> _ravenDb = new Lazy<IDocumentStore>(() =>
         {
-            _log.Trace("Initializing RavenDB DocumentStore");
+            _log.Verbose("Initializing RavenDB DocumentStore");
             var store = new DocumentStore()
             {
                 ConnectionStringName = "RavenDB"
@@ -177,7 +174,7 @@ namespace Fabsenet.EdiEnergy
 
         public static async Task StoreOrUpdateInRavenDb(List<EdiDocument> ediDocuments)
         {
-            _log.Debug("Saving {0} documents to ravendb", ediDocuments.Count);
+            _log.Debug("Saving {DocumentCount} documents to ravendb", ediDocuments.Count);
 
             using (var session = _ravenDb.Value.OpenAsyncSession())
             {
@@ -217,14 +214,14 @@ namespace Fabsenet.EdiEnergy
             {
                 if (ediDocument.TextContentPerPage == null)
                 {
-                    _log.Trace("Analyzing pdf text content for {0}", ediDocument.Id);
+                    _log.Verbose("Analyzing pdf text content for {ediDocumentId}", ediDocument.Id);
                     ediDocument.TextContentPerPage = AnalyzePdfContent(pdfStream);
                 }
                 else
                 {
-                    _log.Debug("Skipping analyze of pdf text content for {0}", ediDocument.Id);                    
+                    _log.Verbose("Skipping analyze of pdf text content for {ediDocumentId}", ediDocument.Id);                    
                 }
-                _log.Trace("identified checkidentifiers are {0}", ediDocument.CheckIdentifier.Dump());
+                _log.Verbose("identified checkidentifiers are {CheckIdentifier}", ediDocument.CheckIdentifier);
             }
         }
 
@@ -244,7 +241,7 @@ namespace Fabsenet.EdiEnergy
 
         private static async Task<Stream> DownloadAndCreateMirror(EdiDocument ediDocument)
         {
-            _log.Debug("testing mirror file availability for {0}", ediDocument.Id);
+            _log.Debug("testing mirror file availability for {ediDocumentId}", ediDocument.Id);
             using (var session = _ravenFs.Value.OpenAsyncSession())
             {
                 var file = await session.Query()
@@ -255,7 +252,7 @@ namespace Fabsenet.EdiEnergy
 
                 if (file == null)
                 {
-                    _log.Debug("Downloading copy of ressource '{0}'", ediDocument.DocumentUri);
+                    _log.Debug("Downloading copy of ressource {DocumentUri}", ediDocument.DocumentUri);
                     var client = new HttpClient();
                     var responseMessage = await client.GetAsync(ediDocument.DocumentUri);
                     responseMessage.EnsureSuccessStatusCode();
@@ -276,7 +273,7 @@ namespace Fabsenet.EdiEnergy
                     }), ms);
 
                     await session.SaveChangesAsync();
-                    _log.Debug("Stored copy of ressource '{0}'", ediDocument.DocumentUri);
+                    _log.Debug("Stored copy of ressource {DocumentUri}", ediDocument.DocumentUri);
 
                     ms.Position = 0;
                     return ms;
@@ -294,10 +291,10 @@ namespace Fabsenet.EdiEnergy
 
         private static string BuildHash(Stream stream)
         {
-            _log.Trace("Starting hash computation.");
+            _log.Verbose("Starting hash computation.");
             var hashBytes = SHA512.Create().ComputeHash(stream);
             stream.Position = 0;
-            _log.Debug("Computed hash is {0}", hashBytes.Dump());
+            _log.Debug("Computed hash is {hash}", hashBytes);
             return Convert.ToBase64String(hashBytes);
         }
 
@@ -310,7 +307,7 @@ namespace Fabsenet.EdiEnergy
                         .Customize(c => c.WaitForNonStaleResults()), doc => doc.MirrorUri == null)
                     .ToListAsync();
 
-                _log.Debug("Found {0} documents which are not mirrored!", notMirroredDocuments.Count);
+                _log.Debug("Found {notMirroredDocumentsCount} documents which are not mirrored!", notMirroredDocuments.Count);
 
                 foreach (var ediDocument in notMirroredDocuments)
                 {
