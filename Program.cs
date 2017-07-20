@@ -2,7 +2,7 @@
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
-using Raven.Client.Document;
+using Raven.Client.Documents;
 using Serilog;
 using Serilog.Events;
 
@@ -18,7 +18,15 @@ namespace Fabsenet.EdiEnergy
             try
             {
                 _log.Debug("EdiEnergyExtractor started.");
-                AsyncMain(args).Wait();
+
+                Task.Run(async () =>
+                {
+                    // Do any async anything you need here without worry
+                    //https://stackoverflow.com/questions/9208921/cant-specify-the-async-modifier-on-the-main-method-of-a-console-app
+
+                    await AsyncMain(args);
+                }).GetAwaiter().GetResult();
+
             }
             catch (Exception ex)
             {
@@ -33,14 +41,8 @@ namespace Fabsenet.EdiEnergy
 
         private static ILogger SetupLogging()
         {
-            var logStore = new DocumentStore
-            {
-                ConnectionStringName = "LogsDB"
-            }.Initialize();
-
             var logger = new LoggerConfiguration()
                 .MinimumLevel.Verbose()
-                .WriteTo.RavenDB(logStore)
                 .WriteTo.Trace()
                 .WriteTo.ColoredConsole()
                 .Enrich.WithProperty("ExtractionRunGuid", Guid.NewGuid().ToString("N"))
@@ -69,10 +71,21 @@ namespace Fabsenet.EdiEnergy
                 dataExtractor.LoadFromWeb();
             }
 
-            dataExtractor.AnalyzeResult();
-            await DataExtractor.StoreOrUpdateInRavenDb(dataExtractor.Documents);
+            _log.Verbose("Initializing RavenDB DocumentStore");
+            var store = new DocumentStore()
+            {
+                Urls = new[] { "http://localhost:8080" },
+                Database = "EdiEnergyTest"
+            }.Initialize();
+            _log.Debug("Initialized RavenDB DocumentStore");
 
-            await DataExtractor.UpdateExistingEdiDocuments();
+            using (var session = store.OpenAsyncSession())
+            {
+                await dataExtractor.AnalyzeResult(session);
+                await DataExtractor.StoreOrUpdateInRavenDb(session, dataExtractor.Documents);
+                await DataExtractor.UpdateExistingEdiDocuments(session);
+                await session.SaveChangesAsync();
+            }
             _log.Debug("Done");
         }
     }

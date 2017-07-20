@@ -17,11 +17,13 @@ namespace Fabsenet.EdiEnergy
         {
             {"GPKE GeLi Gas", new List<string> {"GPKE GeLi Gas"}},
             {"MaBiS", new List<string> {"MaBiS"}},
+            {"MaLo", new List<string> {"MaLo"}},
             {"WiM", new List<string> {"WiM"}},
             {"Einspeiser", new List<string> {"Einspeiser"}},
             {"Netzbetreiberwechsel", new List<string> {"Netzbetreiberwechsel"}},
-            {"Geschäftsdatenanfrage", new List<string> {"Geschäftsdatenanfrage"}},
+            {"Geschäftsdatenanfrage", new List<string> {"Geschäftsdatenanfrage", "Gesch&auml;ftsdatenanfrage"}},
             {"HKNR", new List<string> {"HKNR", "Herkunftsnachweisregister"}},
+            {"Stammdatenänderung", new List<string> {"Stammdatenänderung"}},
         };
     }
 }

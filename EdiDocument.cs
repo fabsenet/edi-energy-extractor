@@ -4,11 +4,12 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
-using Raven.Abstractions.Extensions;
 using Serilog;
+using System.Diagnostics;
 
 namespace Fabsenet.EdiEnergy
 {
+    [DebuggerDisplay("EdiDocument {DocumentNameRaw} ({Id})")]
     public class EdiDocument
     {
         private static readonly ILogger _log = Log.ForContext<EdiDocument>();
@@ -19,7 +20,7 @@ namespace Fabsenet.EdiEnergy
             
         }
 
-        public EdiDocument(string documentNameRaw, Uri documentUri, DateTime? validFrom, DateTime? validTo) : this()
+        public EdiDocument(string documentNameRaw, string documentUri, DateTime? validFrom, DateTime? validTo) : this()
         {
             DocumentNameRaw = Regex.Replace(documentNameRaw, "[ ]+", " ");
             DocumentUri = documentUri;
@@ -34,7 +35,7 @@ namespace Fabsenet.EdiEnergy
             }
             ContainedMessageTypes = containedMessageTypes.Any() ? containedMessageTypes : null;
 
-            Id = $"EdiDocuments/{Path.GetFileNameWithoutExtension(DocumentUri.AbsolutePath)}";
+            Id = $"EdiDocuments/{Path.GetFileNameWithoutExtension(DocumentUri)}";
 
             DocumentName = DocumentNameRaw.Split('\n', '\r').First();
             IsMig = DocumentNameRaw.Contains("MIG");
@@ -62,19 +63,19 @@ namespace Fabsenet.EdiEnergy
         }
 
 
-        public Uri DocumentUri { get; set; }
+        public string DocumentUri { get; set; }
         public Uri MirrorUri { get; set; }
         public DateTime? ValidFrom { get; set; }
         public DateTime? ValidTo { get; set; }   
-        public string DocumentName { get; private set; }
-        public string Id { get; private set; }
-        public bool IsMig { get; private set; }
-        public bool IsAhb { get; private set; }
-        public string[] ContainedMessageTypes { get; private set; }
+        public string DocumentName { get; set; }
+        public string Id { get;  set; }
+        public bool IsMig { get;  set; }
+        public bool IsAhb { get;  set; }
+        public string[] ContainedMessageTypes { get;  set; }
 
-        public bool IsGeneralDocument { get; private set; }
+        public bool IsGeneralDocument { get;  set; }
 
-        public string MessageTypeVersion { get; private set; }
+        public string MessageTypeVersion { get;  set; }
 
         private string GetMessageTypeVersion()
         {
@@ -92,7 +93,7 @@ namespace Fabsenet.EdiEnergy
 
         private static readonly CultureInfo _germanCulture = new CultureInfo("de-DE");
 
-        public DateTime DocumentDate { get; private set; }
+        public DateTime DocumentDate { get;  set; }
 
         private DateTime GuessDocumentDateFromDocumentNameRawOrFilename()
         {
@@ -107,7 +108,7 @@ namespace Fabsenet.EdiEnergy
             else
             {
                 //alternatively try parsing the date from the file name
-                var filename = Path.GetFileNameWithoutExtension(DocumentUri.AbsoluteUri);
+                var filename = Path.GetFileNameWithoutExtension(DocumentUri);
 
                 //could be like "APERAK_MIG_2_1a_2014_04_01"
                 if (Regex.IsMatch(filename, @"_\d{4}_\d{2}_\d{2}$"))
@@ -120,6 +121,12 @@ namespace Fabsenet.EdiEnergy
                 {
                     date = DateTime.ParseExact(filename.Substring(filename.Length - 8), "yyyyMMdd", _germanCulture);
                 }
+
+                //could be like "CONTRL-APERAK_AHB_2_3a_20141001"
+                else if (Regex.IsMatch(filename, @"_\d{8}_v\d$"))
+                {
+                    date = DateTime.ParseExact(filename.Substring(filename.Length - 8-3,8), "yyyyMMdd", _germanCulture);
+                }
                 else
                 {
                     throw new Exception("Could not guess the document date for '" + DocumentUri + "'");
@@ -128,9 +135,9 @@ namespace Fabsenet.EdiEnergy
             return date;
         }
 
-        public string BdewProcess { get; private set; }
+        public string BdewProcess { get; set; }
 
-        public string DocumentNameRaw { get; private set; }
+        public string DocumentNameRaw { get; set; }
 
         public bool IsLatestVersion { get; set; }
 
@@ -149,7 +156,7 @@ namespace Fabsenet.EdiEnergy
         }
         private string[] _textContentPerPage;
 
-        public Dictionary<int, List<int>> CheckIdentifier { get; private set; }
+        public IDictionary<int, List<int>> CheckIdentifier { get; set; }
 
         private static readonly Dictionary<string, string> _checkIdentifierPatternPerMessageType = new Dictionary<string, string>()
         {
@@ -204,7 +211,7 @@ namespace Fabsenet.EdiEnergy
                     .OfType<Match>()
                     .Select(match => match.Value)
                     .Where(id => ContainedMessageTypes == null || ContainedMessageTypes
-                        .Select(msgType => _checkIdentifierPatternPerMessageType.GetOrDefault(msgType))
+                        .Select(msgType => _checkIdentifierPatternPerMessageType.ContainsKey(msgType)? _checkIdentifierPatternPerMessageType[msgType]: null)
                         .Where(prefix => prefix != null)
                         .Any(prefix => id.StartsWith(prefix))
                     )
@@ -217,7 +224,11 @@ namespace Fabsenet.EdiEnergy
                 {
                     foreach (var id in ids)
                     {
-                        result.GetOrAdd(id).Add(pagenum);
+                        if (!result.ContainsKey(id))
+                        {
+                            result[id] = new List<int>();
+                        }
+                        result[id].Add(pagenum);
                     }
                 }
             }

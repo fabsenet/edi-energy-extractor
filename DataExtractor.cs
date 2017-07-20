@@ -11,13 +11,11 @@ using System.Threading.Tasks;
 using HtmlAgilityPack;
 using iTextSharp.text.pdf;
 using iTextSharp.text.pdf.parser;
-using Raven.Abstractions.FileSystem;
 using Raven.Client;
-using Raven.Client.Document;
-using Raven.Client.FileSystem;
-using Raven.Json.Linq;
 using Serilog;
 using Path = System.IO.Path;
+using Raven.Client.Documents;
+using Raven.Client.Documents.Session;
 
 namespace Fabsenet.EdiEnergy
 {
@@ -59,23 +57,20 @@ namespace Fabsenet.EdiEnergy
             _rootHtml = Encoding.GetEncoding(1252).GetString(responseBytes);
         }
 
-        private async Task<EdiDocument> FetchExistingEdiDocument(Uri documentUri)
+        private async Task<IList<EdiDocument>> FetchExistingEdiDocuments(IAsyncDocumentSession session)
         {
-            using (var session = _ravenDb.Value.OpenAsyncSession())
-            {
-                var doc = await Queryable.Where(session
-                        .Query<EdiDocument>(), d => d.DocumentUri == documentUri)
-                    .FirstOrDefaultAsync();
-
-                return doc;
-            } 
+            var docs = await session
+                    .Query<EdiDocument>()
+                    .ToListAsync();
+            return docs;
         }
 
-        public void AnalyzeResult()
+        public async Task AnalyzeResult(IAsyncDocumentSession session)
         {
             var htmlDoc = new HtmlDocument();
             htmlDoc.LoadHtml(_rootHtml);
 
+            var existingDocuments = await FetchExistingEdiDocuments(session);
             //select all data rows from table
             _documents = htmlDoc
                 .DocumentNode
@@ -83,19 +78,22 @@ namespace Fabsenet.EdiEnergy
                 .Select(tr => new
                 {
                     DocumentNameRaw = tr.SelectSingleNode(".//td[2]").InnerText.Trim(),
-                    DocumentUri = new Uri(_baseUri, tr.SelectSingleNode(".//td[2]//a[@href]").GetAttributeValue("href", "")),
+                    DocumentUri = new Uri(_baseUri, tr.SelectSingleNode(".//td[2]//a[@href]").GetAttributeValue("href", "")).AbsoluteUri,
                     ValidFrom = ConvertToDateTime(tr.SelectSingleNode(".//td[3]")),
                     ValidTo = ConvertToDateTime(tr.SelectSingleNode(".//td[4]"))
                 })
                 .Select(tr =>
                 {
-                    var fetchedDocument = FetchExistingEdiDocument(tr.DocumentUri).Result;
+                    var fetchedDocument = existingDocuments.FirstOrDefault(d => d.DocumentUri == tr.DocumentUri);
                     if (fetchedDocument != null)
                     {
                         fetchedDocument.ValidTo = tr.ValidTo;
                         fetchedDocument.ValidFrom = tr.ValidFrom;
+                        return fetchedDocument;
                     }
-                    return fetchedDocument ?? new EdiDocument(tr.DocumentNameRaw, tr.DocumentUri, tr.ValidFrom, tr.ValidTo);
+                    var newEdiDocument = new EdiDocument(tr.DocumentNameRaw, tr.DocumentUri, tr.ValidFrom, tr.ValidTo);
+                    session.StoreAsync(newEdiDocument).Wait();
+                    return newEdiDocument;
                 })
                 .ToList();
 
@@ -125,32 +123,7 @@ namespace Fabsenet.EdiEnergy
 
         private readonly CultureInfo _germanCulture = new CultureInfo("de-DE");
         private List<EdiDocument> _documents;
-
-        private static readonly Lazy<IFilesStore> _ravenFs = new Lazy<IFilesStore>(() =>
-        {
-            _log.Verbose("Initializing RavenFS FilesStore");
-            var store = new FilesStore()
-            {
-                ConnectionStringName = "RavenFS"
-            }.Initialize(ensureFileSystemExists: Debugger.IsAttached);
-            _log.Debug("Initialized RavenFS FilesStore");
-            return store;
-        }
-            );
-
-
-        private static readonly Lazy<IDocumentStore> _ravenDb = new Lazy<IDocumentStore>(() =>
-        {
-            _log.Verbose("Initializing RavenDB DocumentStore");
-            var store = new DocumentStore()
-            {
-                ConnectionStringName = "RavenDB"
-            }.Initialize(ensureDatabaseExists: Debugger.IsAttached);
-            _log.Debug("Initialized RavenDB DocumentStore");
-            return store;
-        }
-            );
-
+        
         private DateTime? ConvertToDateTime(HtmlNode htmlNode)
         {
             if (htmlNode == null)
@@ -172,45 +145,41 @@ namespace Fabsenet.EdiEnergy
             get { return _documents; }
         }
 
-        public static async Task StoreOrUpdateInRavenDb(List<EdiDocument> ediDocuments)
+        public static async Task StoreOrUpdateInRavenDb(IAsyncDocumentSession session, List<EdiDocument> ediDocuments)
         {
             _log.Debug("Saving {DocumentCount} documents to ravendb", ediDocuments.Count);
 
-            using (var session = _ravenDb.Value.OpenAsyncSession())
+            IQueryable<EdiDocument> allExtraEdiDocs = session.Query<EdiDocument>();
+            foreach (var document in ediDocuments)
             {
-                IQueryable<EdiDocument> allExtraEdiDocs = session.Query<EdiDocument>();
-                foreach (var document in ediDocuments)
-                {
-                    var document1 = document;
-                    allExtraEdiDocs = allExtraEdiDocs.Where(doc => doc.DocumentUri != document1.DocumentUri);
-                }
+                var document1 = document;
+                allExtraEdiDocs = allExtraEdiDocs.Where(doc => doc.DocumentUri != document1.DocumentUri);
+            }
 
-                var extraDocs = await allExtraEdiDocs.ToListAsync();
-                foreach (var extraDoc in extraDocs)
-                {
-                    //this document was on the ediEnergy page some time ago but it is not there anymore
-                    extraDoc.IsLatestVersion = false;
-                    await session.StoreAsync(extraDoc);
-                }
+            var extraDocs = await allExtraEdiDocs.ToListAsync();
+            foreach (var extraDoc in extraDocs)
+            {
+                //this document was on the ediEnergy page some time ago but it is not there anymore
+                extraDoc.IsLatestVersion = false;
+                await session.StoreAsync(extraDoc);
+            }
 
-                foreach (var ediDocument in ediDocuments)
-                {
-                    await CreateMirrorAndAnalyzePdfContent(ediDocument);
+            foreach (var ediDocument in ediDocuments)
+            {
+                await CreateMirrorAndAnalyzePdfContent(session, ediDocument);
 
-                    await session.StoreAsync(ediDocument);
-                }
-                await session.SaveChangesAsync();
+                await session.StoreAsync(ediDocument);
             }
         }
 
-        private static async Task CreateMirrorAndAnalyzePdfContent(EdiDocument ediDocument)
+        private static async Task CreateMirrorAndAnalyzePdfContent(IAsyncDocumentSession session, EdiDocument ediDocument)
         {
-            if (ediDocument.MirrorUri!=null && (ediDocument.TextContentPerPage != null || ediDocument.DocumentUri.ToString().EndsWith(".zip"))) return;
+            if (ediDocument.MirrorUri!=null && (ediDocument.TextContentPerPage != null || ediDocument.DocumentUri.EndsWith(".zip"))) return;
 
-            var pdfStream = await DownloadAndCreateMirror(ediDocument);
-            ediDocument.MirrorUri = new Uri(ediDocument.Id + Path.GetExtension(ediDocument.DocumentUri.ToString()), UriKind.Relative);
+            var pdfStream = await DownloadAndCreateMirror(session, ediDocument);
+            ediDocument.MirrorUri = new Uri(ediDocument.Id + Path.GetExtension(ediDocument.DocumentUri), UriKind.Relative);
 
-            if (Path.GetExtension(ediDocument.DocumentUri.ToString()) == ".pdf")
+            if (Path.GetExtension(ediDocument.DocumentUri) == ".pdf")
             {
                 if (ediDocument.TextContentPerPage == null)
                 {
@@ -229,63 +198,57 @@ namespace Fabsenet.EdiEnergy
         {
             string[] result;
 
-            using (var reader = new PdfReader(pdfStream))
+            using (var streamCopy = new MemoryStream())
             {
-                result = Enumerable.Range(1, reader.NumberOfPages)
-                    .Select(pageNumber => PdfTextExtractor.GetTextFromPage(reader, pageNumber))
-                    .ToArray();
+                pdfStream.CopyTo(streamCopy);
+                pdfStream.Position = 0;
+                streamCopy.Position = 0;
+                using (var reader = new PdfReader(streamCopy))
+                {
+                    result = Enumerable.Range(1, reader.NumberOfPages)
+                        .Select(pageNumber => PdfTextExtractor.GetTextFromPage(reader, pageNumber))
+                        .ToArray();
+                }
             }
 
             return result;
         }
 
-        private static async Task<Stream> DownloadAndCreateMirror(EdiDocument ediDocument)
+        private static async Task<Stream> DownloadAndCreateMirror(IAsyncDocumentSession session, EdiDocument ediDocument)
         {
             _log.Debug("testing mirror file availability for {ediDocumentId}", ediDocument.Id);
-            using (var session = _ravenFs.Value.OpenAsyncSession())
+
+            var pdfAttachmentExists = await session.Advanced.AttachmentExistsAsync(ediDocument.Id, "pdf");
+
+            _log.Debug(pdfAttachmentExists ? "the file is mirrored" : "The file does not exist");
+
+            if (!pdfAttachmentExists)
             {
-                var file = await session.Query()
-                    .WhereEquals("OriginalUri", ediDocument.DocumentUri.ToString())
-                    .FirstOrDefaultAsync();
+                _log.Debug("Downloading copy of ressource {DocumentUri}", ediDocument.DocumentUri);
+                var client = new HttpClient();
+                var responseMessage = await client.GetAsync(ediDocument.DocumentUri);
+                responseMessage.EnsureSuccessStatusCode();
+                var pdfStream = await responseMessage.Content.ReadAsStreamAsync();
+                var ms = new MemoryStream();
+                await pdfStream.CopyToAsync(ms);
+                ms.Position = 0;
+                var hash = BuildHash(ms);
+                session.Advanced.GetMetadataFor(ediDocument)["pdf-hash"] = hash;
+                session.Advanced.StoreAttachment(ediDocument, "pdf", ms);
 
-                _log.Debug(file == null ? "The file does not exist" : "the file is mirrored");
+                _log.Debug("Stored copy of ressource {DocumentUri}", ediDocument.DocumentUri);
 
-                if (file == null)
-                {
-                    _log.Debug("Downloading copy of ressource {DocumentUri}", ediDocument.DocumentUri);
-                    var client = new HttpClient();
-                    var responseMessage = await client.GetAsync(ediDocument.DocumentUri);
-                    responseMessage.EnsureSuccessStatusCode();
-                    var pdfStream = await responseMessage.Content.ReadAsStreamAsync();
-                    var ms = new MemoryStream();
-                    await pdfStream.CopyToAsync(ms);
-                    ms.Position = 0;
-                    var hash = BuildHash(ms);
-
-                    session.RegisterUpload(new FileHeader(ediDocument.Id + Path.GetExtension(ediDocument.DocumentUri.ToString()), new RavenJObject()
-                    {
-                        {
-                            "OriginalUri", new RavenJValue(ediDocument.DocumentUri.ToString())
-                        },
-                        {
-                            "Hash", new RavenJValue(hash)
-                        }
-                    }), ms);
-
-                    await session.SaveChangesAsync();
-                    _log.Debug("Stored copy of ressource {DocumentUri}", ediDocument.DocumentUri);
-
-                    ms.Position = 0;
-                    return ms;
-                }
-                else
-                {
-                    var stream = await session.DownloadAsync(file);
-                    var ms = new MemoryStream();
-                    await stream.CopyToAsync(ms);
-                    ms.Position = 0;
-                    return ms;
-                }
+                ms.Position = 0;
+                return ms;
+            }
+            else
+            {
+                var pdfAttachment = await session.Advanced.GetAttachmentAsync(ediDocument, "pdf");
+                var stream = pdfAttachment.Stream;
+                var ms = new MemoryStream();
+                await stream.CopyToAsync(ms);
+                ms.Position = 0;
+                return ms;
             }
         }
 
@@ -298,23 +261,19 @@ namespace Fabsenet.EdiEnergy
             return Convert.ToBase64String(hashBytes);
         }
 
-        public static async Task UpdateExistingEdiDocuments()
+        public static async Task UpdateExistingEdiDocuments(IAsyncDocumentSession session)
         {
-            using (var session = _ravenDb.Value.OpenAsyncSession())
+            var notMirroredDocuments = await session
+                    .Query<EdiDocument>()
+                    .Customize(c => c.WaitForNonStaleResultsAsOfNow())
+                    .Where(doc => doc.MirrorUri == null)
+                .ToListAsync();
+
+            _log.Debug("Found {notMirroredDocumentsCount} documents which are not mirrored!", notMirroredDocuments.Count);
+
+            foreach (var ediDocument in notMirroredDocuments)
             {
-                var notMirroredDocuments = await Queryable.Where(session
-                        .Query<EdiDocument>()
-                        .Customize(c => c.WaitForNonStaleResultsAsOfNow()), doc => doc.MirrorUri == null)
-                    .ToListAsync();
-
-                _log.Debug("Found {notMirroredDocumentsCount} documents which are not mirrored!", notMirroredDocuments.Count);
-
-                foreach (var ediDocument in notMirroredDocuments)
-                {
-                    await CreateMirrorAndAnalyzePdfContent(ediDocument);
-                }
-
-                await session.SaveChangesAsync();
+                await CreateMirrorAndAnalyzePdfContent(session, ediDocument);
             }
         }
     }
