@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Raven.Client.Documents;
 using Serilog;
 using Serilog.Events;
+using System.Configuration;
 
 namespace Fabsenet.EdiEnergy
 {
@@ -74,9 +75,10 @@ namespace Fabsenet.EdiEnergy
             _log.Verbose("Initializing RavenDB DocumentStore");
             var store = new DocumentStore()
             {
-                Urls = new[] { "http://localhost:8080" },
-                Database = "EdiEnergyTest"
+                Urls = new[] { ConfigurationManager.AppSettings["RavenDBUrl"] },
+                Database = ConfigurationManager.AppSettings["RavenDBDatabase"]
             }.Initialize();
+
             _log.Debug("Initialized RavenDB DocumentStore");
 
             using (var session = store.OpenAsyncSession())
