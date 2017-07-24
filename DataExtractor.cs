@@ -176,15 +176,17 @@ namespace Fabsenet.EdiEnergy
         {
             if (ediDocument.MirrorUri!=null && (ediDocument.TextContentPerPage != null || ediDocument.DocumentUri.EndsWith(".zip"))) return;
 
-            var pdfStream = await DownloadAndCreateMirror(session, ediDocument);
+            bool documentRequiresTextAnlyzing = Path.GetExtension(ediDocument.DocumentUri) == ".pdf";
+            var pdfStream = await DownloadAndCreateMirror(session, ediDocument, documentRequiresTextAnlyzing);
             ediDocument.MirrorUri = new Uri(ediDocument.Id + Path.GetExtension(ediDocument.DocumentUri), UriKind.Relative);
 
-            if (Path.GetExtension(ediDocument.DocumentUri) == ".pdf")
+            if (documentRequiresTextAnlyzing)
             {
                 if (ediDocument.TextContentPerPage == null)
                 {
                     _log.Verbose("Analyzing pdf text content for {ediDocumentId}", ediDocument.Id);
                     ediDocument.TextContentPerPage = AnalyzePdfContent(pdfStream);
+                    pdfStream.Dispose();
                 }
                 else
                 {
@@ -214,7 +216,7 @@ namespace Fabsenet.EdiEnergy
             return result;
         }
 
-        private static async Task<Stream> DownloadAndCreateMirror(IAsyncDocumentSession session, EdiDocument ediDocument)
+        private static async Task<Stream> DownloadAndCreateMirror(IAsyncDocumentSession session, EdiDocument ediDocument, bool returnValueRequired)
         {
             _log.Debug("testing mirror file availability for {ediDocumentId}", ediDocument.Id);
 
@@ -225,24 +227,33 @@ namespace Fabsenet.EdiEnergy
             if (!pdfAttachmentExists)
             {
                 _log.Debug("Downloading copy of ressource {DocumentUri}", ediDocument.DocumentUri);
-                var client = new HttpClient();
-                var responseMessage = await client.GetAsync(ediDocument.DocumentUri);
-                responseMessage.EnsureSuccessStatusCode();
-                var pdfStream = await responseMessage.Content.ReadAsStreamAsync();
-                var ms = new MemoryStream();
-                await pdfStream.CopyToAsync(ms);
-                ms.Position = 0;
-                var hash = BuildHash(ms);
+                Stream originalDataStream = await GetFilestream(ediDocument.DocumentUri);
+                
+                var streamForAnalyzing = new MemoryStream((int)originalDataStream.Length);
+                await originalDataStream.CopyToAsync(streamForAnalyzing);
+                originalDataStream.Position = 0;
+                streamForAnalyzing.Position = 0;
+
+                var hash = BuildHash(streamForAnalyzing);
+                streamForAnalyzing.Position = 0;
+
                 session.Advanced.GetMetadataFor(ediDocument)["pdf-hash"] = hash;
-                session.Advanced.StoreAttachment(ediDocument, "pdf", ms);
+                session.Advanced.StoreAttachment(ediDocument, "pdf", originalDataStream);
 
                 _log.Debug("Stored copy of ressource {DocumentUri}", ediDocument.DocumentUri);
 
-                ms.Position = 0;
-                return ms;
+                if (!returnValueRequired)
+                {
+                    streamForAnalyzing.Dispose();
+                    return null;
+                }
+
+                return streamForAnalyzing;
             }
             else
             {
+                if (!returnValueRequired) return null;
+
                 var pdfAttachment = await session.Advanced.GetAttachmentAsync(ediDocument, "pdf");
                 var stream = pdfAttachment.Stream;
                 var ms = new MemoryStream();
@@ -250,6 +261,28 @@ namespace Fabsenet.EdiEnergy
                 ms.Position = 0;
                 return ms;
             }
+        }
+
+        private static async Task<Stream> GetFilestream(string documentUri)
+        {
+            var uriHash = BitConverter.ToString(SHA256.Create().ComputeHash(Encoding.UTF8.GetBytes(documentUri)));
+            var tempFolder = Environment.GetFolderPath(Environment.SpecialFolder.InternetCache);
+
+            var tempFileName = Path.Combine(tempFolder, uriHash + Path.GetExtension(documentUri));
+            if (!File.Exists(tempFileName))
+            {
+                _log.Verbose("Needing to download {documentUri}", documentUri);
+                var client = new HttpClient();
+                var responseMessage = await client.GetAsync(documentUri);
+                responseMessage.EnsureSuccessStatusCode();
+                var bytes = await responseMessage.Content.ReadAsByteArrayAsync();
+                File.WriteAllBytes(tempFileName, bytes);
+            }
+            else
+            {
+                _log.Information("serving from cache: {documentUri}", documentUri);
+            }
+            return File.OpenRead(tempFileName);
         }
 
         private static string BuildHash(Stream stream)

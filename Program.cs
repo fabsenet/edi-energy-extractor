@@ -83,9 +83,23 @@ namespace Fabsenet.EdiEnergy
 
             using (var session = store.OpenAsyncSession())
             {
+                session.Advanced.MaxNumberOfRequestsPerSession = 400;
+
                 await dataExtractor.AnalyzeResult(session);
                 await DataExtractor.StoreOrUpdateInRavenDb(session, dataExtractor.Documents);
+
+                _log.Debug("starting final save changes(1)");
+                await session.SaveChangesAsync();
+            }
+
+            using (var session = store.OpenAsyncSession())
+            {
+                session.Advanced.MaxNumberOfRequestsPerSession = 400;
+
+                _log.Debug("UpdateExistingEdiDocument!");
                 await DataExtractor.UpdateExistingEdiDocuments(session);
+                _log.Debug("starting final save changes(2)");
+                Task.Run(async () => await session.SaveChangesAsync()).GetAwaiter().GetResult();
                 await session.SaveChangesAsync();
             }
             _log.Debug("Done");
