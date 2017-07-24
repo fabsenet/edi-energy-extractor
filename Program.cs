@@ -19,15 +19,7 @@ namespace Fabsenet.EdiEnergy
             try
             {
                 _log.Debug("EdiEnergyExtractor started.");
-
-                Task.Run(async () =>
-                {
-                    // Do any async anything you need here without worry
-                    //https://stackoverflow.com/questions/9208921/cant-specify-the-async-modifier-on-the-main-method-of-a-console-app
-
-                    await AsyncMain(args);
-                }).GetAwaiter().GetResult();
-
+                AsyncMain(args);
             }
             catch (Exception ex)
             {
@@ -55,7 +47,7 @@ namespace Fabsenet.EdiEnergy
             return logger;
         }
 
-        private static async Task AsyncMain(string[] args)
+        private static void AsyncMain(string[] args)
         {
             _log.Verbose("Process called with {arguments}", args);
 
@@ -81,26 +73,25 @@ namespace Fabsenet.EdiEnergy
 
             _log.Debug("Initialized RavenDB DocumentStore");
 
-            using (var session = store.OpenAsyncSession())
+            using (var session = store.OpenSession())
             {
                 session.Advanced.MaxNumberOfRequestsPerSession = 400;
 
-                await dataExtractor.AnalyzeResult(session);
-                await DataExtractor.StoreOrUpdateInRavenDb(session, dataExtractor.Documents);
+                dataExtractor.AnalyzeResult(session);
+                DataExtractor.StoreOrUpdateInRavenDb(session, dataExtractor.Documents);
 
                 _log.Debug("starting final save changes(1)");
-                await session.SaveChangesAsync();
+                session.SaveChanges();
             }
 
-            using (var session = store.OpenAsyncSession())
+            using (var session = store.OpenSession())
             {
                 session.Advanced.MaxNumberOfRequestsPerSession = 400;
 
                 _log.Debug("UpdateExistingEdiDocument!");
-                await DataExtractor.UpdateExistingEdiDocuments(session);
+                DataExtractor.UpdateExistingEdiDocuments(session);
                 _log.Debug("starting final save changes(2)");
-                Task.Run(async () => await session.SaveChangesAsync()).GetAwaiter().GetResult();
-                await session.SaveChangesAsync();
+                session.SaveChanges();
             }
             _log.Debug("Done");
         }
