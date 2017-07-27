@@ -166,8 +166,6 @@ namespace Fabsenet.EdiEnergy
 
             foreach (var ediDocument in ediDocuments)
             {
-                CreateMirrorAndAnalyzePdfContent(session, ediDocument);
-
                 session.Store(ediDocument);
             }
         }
@@ -294,7 +292,7 @@ namespace Fabsenet.EdiEnergy
             return Convert.ToBase64String(hashBytes);
         }
 
-        public static void UpdateExistingEdiDocuments(IDocumentSession session)
+        public static bool UpdateExistingEdiDocuments(IDocumentSession session)
         {
             var notMirroredDocuments = session
                     .Query<EdiDocument>()
@@ -304,10 +302,15 @@ namespace Fabsenet.EdiEnergy
 
             _log.Debug("Found {notMirroredDocumentsCount} documents which are not mirrored!", notMirroredDocuments.Count);
 
-            foreach (var ediDocument in notMirroredDocuments)
+
+            if (notMirroredDocuments.Count == 0) return false;
+
+            const int batchSize = 3;
+            foreach (var ediDocument in notMirroredDocuments.Take(batchSize))
             {
                 CreateMirrorAndAnalyzePdfContent(session, ediDocument);
             }
+            return notMirroredDocuments.Count > batchSize;
         }
     }
 }

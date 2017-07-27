@@ -35,7 +35,11 @@ namespace Fabsenet.EdiEnergy
             }
             ContainedMessageTypes = containedMessageTypes.Any() ? containedMessageTypes : null;
 
-            Id = $"EdiDocuments/{Path.GetFileNameWithoutExtension(DocumentUri)}";
+            string saveFilename = Uri.UnescapeDataString(Path.GetFileNameWithoutExtension(DocumentUri))
+                .Replace(" ", "_")
+                ;
+
+            Id = $"EdiDocuments/{saveFilename}";
 
             DocumentName = DocumentNameRaw.Split('\n', '\r').First();
             IsMig = DocumentNameRaw.Contains("MIG");

@@ -75,8 +75,6 @@ namespace Fabsenet.EdiEnergy
 
             using (var session = store.OpenSession())
             {
-                session.Advanced.MaxNumberOfRequestsPerSession = 400;
-
                 dataExtractor.AnalyzeResult(session);
                 DataExtractor.StoreOrUpdateInRavenDb(session, dataExtractor.Documents);
 
@@ -84,15 +82,18 @@ namespace Fabsenet.EdiEnergy
                 session.SaveChanges();
             }
 
-            using (var session = store.OpenSession())
+            bool thereIsMore;
+            do
             {
-                session.Advanced.MaxNumberOfRequestsPerSession = 400;
-
-                _log.Debug("UpdateExistingEdiDocument!");
-                DataExtractor.UpdateExistingEdiDocuments(session);
-                _log.Debug("starting final save changes(2)");
-                session.SaveChanges();
+                using (var session = store.OpenSession())
+                {
+                    _log.Debug("UpdateExistingEdiDocument!");
+                    thereIsMore = DataExtractor.UpdateExistingEdiDocuments(session);
+                    _log.Debug("starting final save changes(2) and thereIsMore={thereIsMore}", thereIsMore);
+                    session.SaveChanges();
+                }
             }
+            while (thereIsMore);
             _log.Debug("Done");
         }
     }
