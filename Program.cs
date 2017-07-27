@@ -6,6 +6,8 @@ using Raven.Client.Documents;
 using Serilog;
 using Serilog.Events;
 using System.Configuration;
+using Raven.Client.Documents.Indexes;
+using System.Reflection;
 
 namespace Fabsenet.EdiEnergy
 {
@@ -19,7 +21,7 @@ namespace Fabsenet.EdiEnergy
             try
             {
                 _log.Debug("EdiEnergyExtractor started.");
-                AsyncMain(args);
+                InnerMain(args);
             }
             catch (Exception ex)
             {
@@ -35,19 +37,15 @@ namespace Fabsenet.EdiEnergy
         private static ILogger SetupLogging()
         {
             var logger = new LoggerConfiguration()
-                .MinimumLevel.Verbose()
-                .WriteTo.Trace()
-                .WriteTo.ColoredConsole()
-                .Enrich.WithProperty("ExtractionRunGuid", Guid.NewGuid().ToString("N"))
-                .CreateLogger()
-                .ForContext("App", "EdiEnergyExtractor");
+                    .ReadFrom.AppSettings()
+                    .CreateLogger();
 
             Log.Logger = logger;
 
             return logger;
         }
 
-        private static void AsyncMain(string[] args)
+        private static void InnerMain(string[] args)
         {
             _log.Verbose("Process called with {arguments}", args);
 
@@ -70,12 +68,16 @@ namespace Fabsenet.EdiEnergy
                 Urls = new[] { ConfigurationManager.AppSettings["RavenDBUrl"] },
                 Database = ConfigurationManager.AppSettings["RavenDBDatabase"]
             }.Initialize();
+            _log.Verbose("Creating RavenDB indexe");
+            IndexCreation.CreateIndexes(Assembly.GetExecutingAssembly(), store);
 
             _log.Debug("Initialized RavenDB DocumentStore");
 
             using (var session = store.OpenSession())
             {
+                _log.Verbose("AnalyzeResult started");
                 dataExtractor.AnalyzeResult(session);
+                _log.Verbose("StoreOrUpdateInRavenDb started");
                 DataExtractor.StoreOrUpdateInRavenDb(session, dataExtractor.Documents);
 
                 _log.Debug("starting final save changes(1)");

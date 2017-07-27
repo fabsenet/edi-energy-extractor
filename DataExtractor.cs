@@ -149,7 +149,7 @@ namespace Fabsenet.EdiEnergy
         {
             _log.Debug("Saving {DocumentCount} documents to ravendb", ediDocuments.Count);
 
-            IQueryable<EdiDocument> allExtraEdiDocs = session.Query<EdiDocument>();
+            IQueryable<EdiDocument> allExtraEdiDocs = session.Query<EdiDocument, EdiDocuments_DocumentUri>();
             foreach (var document in ediDocuments)
             {
                 var document1 = document;
@@ -295,7 +295,7 @@ namespace Fabsenet.EdiEnergy
         public static bool UpdateExistingEdiDocuments(IDocumentSession session)
         {
             var notMirroredDocuments = session
-                    .Query<EdiDocument>()
+                    .Query<EdiDocument, EdiDocuments_MirrorUri>()
                     .Customize(c => c.WaitForNonStaleResultsAsOfNow())
                     .Where(doc => doc.MirrorUri == null)
                 .ToList();

@@ -171,6 +171,7 @@ namespace Fabsenet.EdiEnergy
             {"ORDRSP", "19"},
             {"IFTSTA", "21"},
             {"INSRPT", "23"},
+            {"PRICAT", "27"},
             {"INVOIC", "31"},
             {"REMADV", "33"},
             {"REQOTE", "35"},
