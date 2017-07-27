@@ -9,6 +9,7 @@ using System.Diagnostics;
 
 namespace Fabsenet.EdiEnergy
 {
+
     [DebuggerDisplay("EdiDocument {DocumentNameRaw} ({Id})")]
     public class EdiDocument
     {

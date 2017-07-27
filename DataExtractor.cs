@@ -292,25 +292,29 @@ namespace Fabsenet.EdiEnergy
             return Convert.ToBase64String(hashBytes);
         }
 
-        public static bool UpdateExistingEdiDocuments(IDocumentSession session)
+        public static (bool thereIsMore,bool saveChangesRequired) UpdateExistingEdiDocuments(IDocumentSession session)
         {
+            const int batchSize = 3;
+
             var notMirroredDocuments = session
                     .Query<EdiDocument, EdiDocuments_MirrorUri>()
+                    .Statistics(out var stats)
                     .Customize(c => c.WaitForNonStaleResultsAsOfNow())
                     .Where(doc => doc.MirrorUri == null)
-                .ToList();
+                    .Take(batchSize)
+                    .ToList();
 
             _log.Debug("Found {notMirroredDocumentsCount} documents which are not mirrored!", notMirroredDocuments.Count);
 
 
-            if (notMirroredDocuments.Count == 0) return false;
+            if (notMirroredDocuments.Count == 0) return (false, false);
 
-            const int batchSize = 3;
             foreach (var ediDocument in notMirroredDocuments.Take(batchSize))
             {
                 CreateMirrorAndAnalyzePdfContent(session, ediDocument);
             }
-            return notMirroredDocuments.Count > batchSize;
+            return ( thereIsMore: stats.TotalResults > batchSize
+                , saveChangesRequired: notMirroredDocuments.Count > 0);
         }
     }
 }

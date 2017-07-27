@@ -32,6 +32,7 @@ namespace Fabsenet.EdiEnergy
                     Debugger.Break();
                 }
             }
+            Log.CloseAndFlush();
         }
 
         private static ILogger SetupLogging()
@@ -90,12 +91,28 @@ namespace Fabsenet.EdiEnergy
                 using (var session = store.OpenSession())
                 {
                     _log.Debug("UpdateExistingEdiDocument!");
-                    thereIsMore = DataExtractor.UpdateExistingEdiDocuments(session);
-                    _log.Debug("starting final save changes(2) and thereIsMore={thereIsMore}", thereIsMore);
-                    session.SaveChanges();
+                    bool saveChangesRequired;
+                    (thereIsMore, saveChangesRequired) = DataExtractor.UpdateExistingEdiDocuments(session);
+                    if(saveChangesRequired)
+                    {
+                        _log.Debug("starting final save changes(2)");
+                        session.SaveChanges();
+                       _log.Debug("final save changes(2) done");
+                    }
+                    _log.Debug("thereIsMore={thereIsMore}", thereIsMore);
                 }
             }
             while (thereIsMore);
+
+
+            _log.Debug("saving final stats");
+            using (var session = store.OpenSession())
+            {
+                var stats = session.Load<ExportRunStatistics>(ExportRunStatistics.DefaultId) ?? new ExportRunStatistics { Id = ExportRunStatistics.DefaultId };
+                stats.RunFinishedUtc = DateTime.UtcNow;
+                session.Store(stats);
+                session.SaveChanges();
+            }
             _log.Debug("Done");
         }
     }
