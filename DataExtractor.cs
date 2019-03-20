@@ -218,7 +218,7 @@ namespace Fabsenet.EdiEnergy
         {
             _log.Debug("testing mirror file availability for {ediDocumentId}", ediDocument.Id);
 
-            var pdfAttachmentExists = session.Advanced.AttachmentExists(ediDocument.Id, "pdf");
+            var pdfAttachmentExists = session.Advanced.Attachments.Exists(ediDocument.Id, "pdf");
 
             _log.Debug(pdfAttachmentExists ? "the file is mirrored" : "The file does not exist");
 
@@ -236,7 +236,7 @@ namespace Fabsenet.EdiEnergy
                 streamForAnalyzing.Position = 0;
 
                 session.Advanced.GetMetadataFor(ediDocument)["pdf-hash"] = hash;
-                session.Advanced.StoreAttachment(ediDocument, "pdf", originalDataStream);
+                session.Advanced.Attachments.Store(ediDocument, "pdf", originalDataStream);
 
                 _log.Debug("Stored copy of ressource {DocumentUri}", ediDocument.DocumentUri);
 
@@ -252,7 +252,7 @@ namespace Fabsenet.EdiEnergy
             {
                 if (!returnValueRequired) return null;
 
-                var pdfAttachment = session.Advanced.GetAttachment(ediDocument, "pdf");
+                var pdfAttachment = session.Advanced.Attachments.Get(ediDocument, "pdf");
                 var stream = pdfAttachment.Stream;
                 var ms = new MemoryStream();
                 stream.CopyTo(ms);
@@ -299,7 +299,7 @@ namespace Fabsenet.EdiEnergy
             var notMirroredDocuments = session
                     .Query<EdiDocument, EdiDocuments_MirrorUri>()
                     .Statistics(out var stats)
-                    .Customize(c => c.WaitForNonStaleResultsAsOfNow())
+                    .Customize(c => c.WaitForNonStaleResults())
                     .Where(doc => doc.MirrorUri == null)
                     .Take(batchSize)
                     .ToList();
