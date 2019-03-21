@@ -23,7 +23,7 @@ namespace EdiEnergyExtractorCore
 
         public EdiDocument(string documentNameRaw, string documentUri, DateTime? validFrom, DateTime? validTo) : this()
         {
-            DocumentNameRaw = Regex.Replace(documentNameRaw, "[ ]+", " ");
+            DocumentNameRaw = documentNameRaw;
             DocumentUri = documentUri;
             ValidFrom = validFrom;
             ValidTo = validTo;
@@ -40,7 +40,7 @@ namespace EdiEnergyExtractorCore
                 .Replace(" ", "_")
                 ;
 
-            Id = $"EdiDocuments/{saveFilename}";
+            //Id = $"EdiDocuments/{saveFilename}";
 
             DocumentName = DocumentNameRaw.Split('\n', '\r').First();
             IsMig = DocumentNameRaw.Contains("MIG");
@@ -59,7 +59,6 @@ namespace EdiEnergyExtractorCore
             }
 
             IsAhb = DocumentNameRaw.Contains("AHB") || BdewProcess != null;
-            DocumentDate = GuessDocumentDateFromDocumentNameRawOrFilename();
 
 
             IsGeneralDocument = !IsMig && !IsAhb;
@@ -69,7 +68,6 @@ namespace EdiEnergyExtractorCore
 
 
         public string DocumentUri { get; set; }
-        public Uri MirrorUri { get; set; }
         public DateTime? ValidFrom { get; set; }
         public DateTime? ValidTo { get; set; }   
         public string DocumentName { get; set; }
@@ -98,9 +96,9 @@ namespace EdiEnergyExtractorCore
 
         private static readonly CultureInfo _germanCulture = new CultureInfo("de-DE");
 
-        public DateTime DocumentDate { get;  set; }
+        public DateTime? DocumentDate { get;  set; }
 
-        private DateTime GuessDocumentDateFromDocumentNameRawOrFilename()
+        private DateTime? GuessDocumentDateFromDocumentNameRawOrFilename()
         {
             DateTime date;
             if (DocumentNameRaw.Contains("Stand:"))
@@ -113,12 +111,22 @@ namespace EdiEnergyExtractorCore
             else
             {
                 //alternatively try parsing the date from the file name
-                var filename = Path.GetFileNameWithoutExtension(DocumentUri);
+                var filename = Path.GetFileNameWithoutExtension(Filename);
 
                 //could be like "APERAK_MIG_2_1a_2014_04_01"
                 if (Regex.IsMatch(filename, @"_\d{4}_\d{2}_\d{2}$"))
                 {
                     date = DateTime.ParseExact(filename.Substring(filename.Length - 10), "yyyy_MM_dd", _germanCulture);
+                }
+
+                //could be like "BK6-13-200_Beschluss_2014_04_16_Anlage_5"
+                else if (Regex.IsMatch(filename, @"_\d{4}_\d{2}_\d{2}_"))
+                {
+                    var match = Regex.Match(filename, @"_(?<year>\d{4})_(?<month>\d{2})_(?<day>\d{2})_", RegexOptions.ExplicitCapture);
+                    var year = int.Parse(match.Groups["year"].Value);
+                    var month = int.Parse(match.Groups["month"].Value);
+                    var day = int.Parse(match.Groups["day"].Value);
+                    date = new DateTime(year, month, day);
                 }
 
                 //could be like "CONTRL-APERAK_AHB_2_3a_20141001"
@@ -132,9 +140,13 @@ namespace EdiEnergyExtractorCore
                 {
                     date = DateTime.ParseExact(filename.Substring(filename.Length - 8-3,8), "yyyyMMdd", _germanCulture);
                 }
+                else if (ValidFrom.HasValue && ValidFrom.Value.Year < 2017 && !ValidTo.HasValue)
+                {
+                    return ValidFrom.Value;
+                }
                 else
                 {
-                    throw new Exception("Could not guess the document date for '" + DocumentUri + "'");
+                    throw new NotImplementedException($"cannot guess date for document. (DocumentNameRaw='{DocumentNameRaw}', Filename='{Filename}')");
                 }
             }
             return date;
@@ -146,22 +158,19 @@ namespace EdiEnergyExtractorCore
 
         public bool IsLatestVersion { get; set; }
 
-
-        public string[] TextContentPerPage
-        {
-            get { return _textContentPerPage; }
-            set
-            {
-                _textContentPerPage = value;
-                if (value != null)
-                {
-                    BuildCheckIdentifierList();
-                }
-            }
-        }
-        private string[] _textContentPerPage;
+        private string _filename;
 
         public IDictionary<int, List<int>> CheckIdentifier { get; set; }
+
+        public string Filename
+        {
+            get => _filename;
+            set
+            {
+                _filename = value;
+                DocumentDate = GuessDocumentDateFromDocumentNameRawOrFilename();
+            }
+        }
 
         private static readonly Dictionary<string, string> _checkIdentifierPatternPerMessageType = new Dictionary<string, string>()
         {
@@ -178,7 +187,7 @@ namespace EdiEnergyExtractorCore
             {"REQOTE", "35"},
         };
 
-        private void BuildCheckIdentifierList()
+        public void BuildCheckIdentifierList(IEnumerable<string> textContentPerPage)
         {
             _log.Trace("BuildCheckIdentifierList() called.");
 
@@ -209,12 +218,11 @@ namespace EdiEnergyExtractorCore
             var result = new Dictionary<int, List<int>>();
 
             var pagenum = 0;
-            foreach (var text in TextContentPerPage)
+            foreach (var text in textContentPerPage)
             {
                 pagenum++;
 
                 var ids = Regex.Matches(text, pattern)
-                    .OfType<Match>()
                     .Select(match => match.Value)
                     .Where(id => ContainedMessageTypes == null || ContainedMessageTypes
                         .Select(msgType => _checkIdentifierPatternPerMessageType.ContainsKey(msgType)? _checkIdentifierPatternPerMessageType[msgType]: null)

@@ -3,6 +3,8 @@ using System.Configuration;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 using NLog;
 using NLog.Config;
 using NLog.Fluent;
@@ -15,12 +17,15 @@ namespace EdiEnergyExtractorCore
     {
         private static readonly ILogger _log = LogManager.GetCurrentClassLogger();
         
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
+#if !DEBUG
             try
             {
+#endif
                 _log.Debug("EdiEnergyExtractor started.");
-                InnerMain(args);
+                await InnerMain(args);
+#if !DEBUG
             }
             catch (Exception ex)
             {
@@ -31,66 +36,30 @@ namespace EdiEnergyExtractorCore
                     Debugger.Break();
                 }
             }
+#endif
             LogManager.Shutdown();
         }
 
-        private static void InnerMain(string[] args)
+        private static async Task InnerMain(string[] args)
         {
             _log.Trace("Process called with {arguments}", args);
 
-            var dataExtractor = new DataExtractor();
-            if (args.Any())
-            {
-                _log.Warn("Using file as ressource '{filename}'", args[0]);
-                dataExtractor.LoadFromFile(args[0]);
-            }
-            else
-            {
-                //request data from actual web page
-                _log.Info("using web as actual ressource");
-                dataExtractor.LoadFromWeb();
-            }
+            var config = new ConfigurationBuilder()
+                .AddJsonFile("appsettings.json")
+                .AddEnvironmentVariables("EdiDocuments_")
+                .Build();
 
-            _log.Trace("Initializing RavenDB DocumentStore");
-            var store = new DocumentStore()
-            {
-                Urls = new[] { ConfigurationManager.AppSettings["RavenDBUrl"] },
-                Database = ConfigurationManager.AppSettings["RavenDBDatabase"]
-            }.Initialize();
-            _log.Trace("Creating RavenDB indexe");
-            IndexCreation.CreateIndexes(Assembly.GetExecutingAssembly(), store);
+            var shouldPreferCache = args.Any();
+            var store = GetDocumentStore(config);
 
-            _log.Debug("Initialized RavenDB DocumentStore");
+            var dataExtractor = new DataExtractor(new CacheForcableHttpClient(shouldPreferCache), store);
 
-            using (var session = store.OpenSession())
-            {
-                _log.Trace("AnalyzeResult started");
-                dataExtractor.AnalyzeResult(session);
-                _log.Trace("StoreOrUpdateInRavenDb started");
-                DataExtractor.StoreOrUpdateInRavenDb(session, dataExtractor.Documents);
+            //request data from web page
+            await dataExtractor.LoadFromWeb();
 
-                _log.Debug("starting final save changes(1)");
-                session.SaveChanges();
-            }
+            _log.Trace("AnalyzeResult started");
+            await dataExtractor.AnalyzeResult();
 
-            bool thereIsMore;
-            do
-            {
-                using (var session = store.OpenSession())
-                {
-                    _log.Debug("UpdateExistingEdiDocument!");
-                    bool saveChangesRequired;
-                    (thereIsMore, saveChangesRequired) = DataExtractor.UpdateExistingEdiDocuments(session);
-                    if (saveChangesRequired)
-                    {
-                        _log.Debug("starting final save changes(2)");
-                        session.SaveChanges();
-                        _log.Debug("final save changes(2) done");
-                    }
-                    _log.Debug("thereIsMore={thereIsMore}", thereIsMore);
-                }
-            }
-            while (thereIsMore);
 
 
             _log.Debug("saving final stats");
@@ -102,6 +71,21 @@ namespace EdiEnergyExtractorCore
                 session.SaveChanges();
             }
             _log.Debug("Done");
+        }
+
+        private static IDocumentStore GetDocumentStore(IConfigurationRoot config)
+        {
+            _log.Trace("Initializing RavenDB DocumentStore");
+            var store = new DocumentStore()
+            {
+                Urls = new[] {config["DatabaseUrl"]},
+                Database = config["DatabaseName"]
+            }.Initialize();
+            _log.Trace("Creating RavenDB indexe");
+            IndexCreation.CreateIndexes(Assembly.GetExecutingAssembly(), store);
+
+            _log.Debug("Initialized RavenDB DocumentStore");
+            return store;
         }
     }
 }

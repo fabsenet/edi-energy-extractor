@@ -1,15 +1,17 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
-using System.Security.Cryptography;
-using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using HtmlAgilityPack;
 using iTextSharp.text.pdf;
 using iTextSharp.text.pdf.parser;
 using NLog;
+using NLog.LayoutRenderers;
+using Raven.Client.Documents;
 using Raven.Client.Documents.Session;
 using Path = System.IO.Path;
 
@@ -17,43 +19,46 @@ namespace EdiEnergyExtractorCore
 {
     internal class DataExtractor
     {
+        private IDocumentStore Store { get; }
         private static readonly ILogger _log = LogManager.GetCurrentClassLogger();
 
-        private string _rootHtml;
-        private readonly Uri _baseUri = new Uri("http://edi-energy.de");
+        private List<string> _rootHtml;
+        private readonly Uri _baseUri = new Uri("https://www.edi-energy.de");
 
-        public void LoadFromFile(string rootPath)
+        private readonly CacheForcableHttpClient _httpClient;
+
+        public DataExtractor(CacheForcableHttpClient httpClient, IDocumentStore store)
         {
-            _log.Warn("Loading source data from file: {rootPath}", rootPath);
-            if (!File.Exists(rootPath))
-            {
-                _log.Error("the source file does not exist. Its expected path was: {rootPath}", rootPath);
-                throw new FileNotFoundException("Root file not found. (Expected location: '" + rootPath + "')");
-            }
-            _rootHtml = File.ReadAllText(rootPath);
+            _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+            Store = store ?? throw new ArgumentNullException(nameof(store));
         }
 
-        public void LoadFromWeb()
+        private readonly string[] _webUris =
+        {
+            "https://www.edi-energy.de/index.php?id=38&tx_bdew_bdew%5Bview%5D=now&tx_bdew_bdew%5Baction%5D=list&tx_bdew_bdew%5Bcontroller%5D=Dokument",
+            "https://www.edi-energy.de/index.php?id=38&tx_bdew_bdew%5Bview%5D=future&tx_bdew_bdew%5Baction%5D=list&tx_bdew_bdew%5Bcontroller%5D=Dokument"
+        };
+
+        public async Task LoadFromWeb()
         {
             _log.Debug("Loading source data from web.");
-            var client = new HttpClient();
-            var responseMessage = client.GetAsync("http://edi-energy.de").Result;
-            _log.Debug("HTTP Status Code is {StatusCode}", responseMessage.StatusCode);
-            responseMessage.EnsureSuccessStatusCode();
+
+            Directory.CreateDirectory("SampleInput");
+
+            _rootHtml = (await Task.WhenAll(_webUris.Select(async (uri, index) =>
+            {
+                var (content, filename) = await _httpClient.GetAsync(uri);
+
+                _log.Debug("Receive response with {length} bytes.", content.Length);
+                return new StreamReader(content).ReadToEnd();
+
+            }))).ToList();
 
 
-            //sure, why not use windows encoding without telling anybody in http- or html- header?
-            //what could possibly go wrong? :D
-            //UTF8 (default): Erg�nzende Beschreibung
-            //ANSII: Erg?nzende Beschreibung
-            //1252 (Windows): Ergänzende Beschreibung
-            var responseBytes = responseMessage.Content.ReadAsByteArrayAsync().Result;
-            _log.Debug("Receive response with {ResponseLength} bytes.", responseBytes.Length);
-            _log.Warn("Assuming Windows encoding 1252 to parse text.");
-            _rootHtml = Encoding.GetEncoding(1252).GetString(responseBytes);
+
         }
 
-        private IList<EdiDocument> FetchExistingEdiDocuments(IDocumentSession session)
+        private List<EdiDocument> FetchExistingEdiDocuments(IDocumentSession session)
         {
             var docs = session
                     .Query<EdiDocument>()
@@ -61,65 +66,112 @@ namespace EdiEnergyExtractorCore
             return docs;
         }
 
-        public void AnalyzeResult(IDocumentSession session)
+        public async Task AnalyzeResult()
         {
-            var htmlDoc = new HtmlDocument();
-            htmlDoc.LoadHtml(_rootHtml);
+            var htmlDocs = _rootHtml.Select(html =>
+                {
+                    var htmlDoc = new HtmlDocument();
+                    htmlDoc.LoadHtml(html);
 
-            var existingDocuments = FetchExistingEdiDocuments(session);
-            //select all data rows from table
-            _documents = htmlDoc
-                .DocumentNode
-                .SelectNodes("//table[1]//tr[position()>2 and .//a[@href]]")
-                .Select(tr => new
-                {
-                    DocumentNameRaw = tr.SelectSingleNode(".//td[2]").InnerText.Trim(),
-                    DocumentUri = new Uri(_baseUri, tr.SelectSingleNode(".//td[2]//a[@href]").GetAttributeValue("href", "")).AbsoluteUri,
-                    ValidFrom = ConvertToDateTime(tr.SelectSingleNode(".//td[3]")),
-                    ValidTo = ConvertToDateTime(tr.SelectSingleNode(".//td[4]"))
-                })
-                .Select(tr =>
-                {
-                    var fetchedDocument = existingDocuments.FirstOrDefault(d => d.DocumentUri == tr.DocumentUri);
-                    if (fetchedDocument != null)
-                    {
-                        fetchedDocument.ValidTo = tr.ValidTo;
-                        fetchedDocument.ValidFrom = tr.ValidFrom;
-                        return fetchedDocument;
-                    }
-                    var newEdiDocument = new EdiDocument(tr.DocumentNameRaw, tr.DocumentUri, tr.ValidFrom, tr.ValidTo);
-                    session.Store(newEdiDocument);
-                    return newEdiDocument;
+                    return htmlDoc.DocumentNode;
                 })
                 .ToList();
 
-            //reset current latest document
-            _documents.ForEach(doc => doc.IsLatestVersion = false);
 
-            //determine what the latest document version is again
-            var documentGroups = from doc in _documents
-                group doc by new
+            {
+                int newEdiDocumentCount = 0;
+                List<EdiDocument> existingDocuments;
+
+                using (var session = Store.OpenSession())
                 {
-                    doc.BdewProcess,
-                    doc.ValidFrom,
-                    doc.ValidTo,
-                    doc.IsAhb,
-                    doc.IsMig,
-                    doc.IsGeneralDocument,
-                    ContainedMessageTypesString =
-                        doc.ContainedMessageTypes != null && doc.ContainedMessageTypes.Any() ? doc.ContainedMessageTypes.Aggregate((m1, m2) => m1 + ", " + m2) : null
+                    existingDocuments = FetchExistingEdiDocuments(session);
                 }
-                into g
-                select g;
 
-            var newestDocumentsInEachGroup = documentGroups.Select(g => g.OrderByDescending(doc => doc.DocumentDate).First()).ToList();
+                //select all data rows from table
+                var tasks = htmlDocs
+                    .SelectMany(d => d.SelectNodes("//table[1]//tr[.//a[@href]]"))
+                    .Select(tr => new
+                    {
+                        DocumentNameRaw = Regex.Replace(tr.SelectSingleNode(".//td[1]").InnerText.Trim(), "[ ]+", " "),
+                        ValidFrom = ConvertToDateTime(tr.SelectSingleNode(".//td[2]")),
+                        ValidTo = ConvertToDateTime(tr.SelectSingleNode(".//td[3]")),
+                        DocumentUri = BuildDocumentUri(tr),
+                    })
+                    .Where( tr => !tr.DocumentNameRaw.Contains("EDIFACT Utilities"))
+                    .Select(async tr =>
+                    {
+                        var fetchedDocument = existingDocuments.FirstOrDefault(d => d.DocumentNameRaw == tr.DocumentNameRaw);
+                        if (fetchedDocument != null)
+                        {
+                            fetchedDocument.ValidTo = tr.ValidTo;
+                            fetchedDocument.ValidFrom = tr.ValidFrom;
+                            return;
+                        }
 
-            newestDocumentsInEachGroup.ForEach(doc => doc.IsLatestVersion = true);
+                        var newEdiDocument = new EdiDocument(tr.DocumentNameRaw, tr.DocumentUri, tr.ValidFrom, tr.ValidTo);
+                        var pdfStream = await CreateMirrorAndAnalyzePdfContent(newEdiDocument);
+
+                        using (var session = Store.OpenSession())
+                        {
+                            session.Store(newEdiDocument);
+                            session.Advanced.Attachments.Store(newEdiDocument, "pdf", pdfStream);
+                            ++newEdiDocumentCount;
+                            _log.Info($"saving session changes after {newEdiDocumentCount} new documents.");
+                            session.SaveChanges();
+                        }
+
+                    });
+
+                foreach (var task in tasks)
+                {
+                    await task;
+                }
+            }
+
+            using (var session = Store.OpenSession())
+            {
+                //refetch
+                var ediDocuments = FetchExistingEdiDocuments(session);
+
+                //reset current latest document
+                ediDocuments.ForEach(doc => doc.IsLatestVersion = false);
+
+                //determine what the latest document version is again
+                var documentGroups = from doc in ediDocuments
+                    group doc by new
+                    {
+                        doc.BdewProcess,
+                        doc.ValidFrom,
+                        doc.ValidTo,
+                        doc.IsAhb,
+                        doc.IsMig,
+                        doc.IsGeneralDocument,
+                        ContainedMessageTypesString =
+                            doc.ContainedMessageTypes != null && doc.ContainedMessageTypes.Any()
+                                ? doc.ContainedMessageTypes.Aggregate((m1, m2) => m1 + ", " + m2)
+                                : null
+                    }
+                    into g
+                    select g;
+
+                var newestDocumentsInEachGroup = documentGroups.Select(g => g.OrderByDescending(doc => doc.DocumentDate).First()).ToList();
+
+                newestDocumentsInEachGroup.ForEach(doc => doc.IsLatestVersion = true);
+
+                session.SaveChanges();
+            }
+        }
+
+        private string BuildDocumentUri(HtmlNode tr)
+        {
+            var rawHref = tr.SelectSingleNode(".//td[4]//a[@href]").GetAttributeValue("href", null) ?? throw new Exception("the href is null!");
+            var href = rawHref.Replace("&amp;", "&");
+            href = Regex.Replace(href, @"&cHash=[a-zA-Z0-9]+", "");
+            return new Uri(_baseUri, href).AbsoluteUri;
         }
 
         private readonly CultureInfo _germanCulture = new CultureInfo("de-DE");
-        private List<EdiDocument> _documents;
-        
+
         private DateTime? ConvertToDateTime(HtmlNode htmlNode)
         {
             if (htmlNode == null)
@@ -128,189 +180,44 @@ namespace EdiEnergyExtractorCore
             }
             var text = htmlNode.InnerText.Trim();
 
-            DateTime dt;
-            if (DateTime.TryParse(text, _germanCulture, DateTimeStyles.None, out dt))
+            if (DateTime.TryParse(text, _germanCulture, DateTimeStyles.None, out var dt))
             {
                 return dt;
             }
             return null;
         }
 
-        public List<EdiDocument> Documents
+
+        private async Task<Stream> CreateMirrorAndAnalyzePdfContent(EdiDocument ediDocument)
         {
-            get { return _documents; }
-        }
+            if (ediDocument.Filename != null) return null;
 
-        public static void StoreOrUpdateInRavenDb(IDocumentSession session, List<EdiDocument> ediDocuments)
-        {
-            _log.Debug("Saving {DocumentCount} documents to ravendb", ediDocuments.Count);
+            var pdfStream = await DownloadAndCreateMirror(ediDocument);
 
-            IQueryable<EdiDocument> allExtraEdiDocs = session.Query<EdiDocument, EdiDocuments_DocumentUri>();
-            foreach (var document in ediDocuments)
-            {
-                var document1 = document;
-                allExtraEdiDocs = allExtraEdiDocs.Where(doc => doc.DocumentUri != document1.DocumentUri);
-            }
-
-            var extraDocs = allExtraEdiDocs.ToList();
-            foreach (var extraDoc in extraDocs)
-            {
-                //this document was on the ediEnergy page some time ago but it is not there anymore
-                extraDoc.IsLatestVersion = false;
-                session.Store(extraDoc);
-            }
-
-            foreach (var ediDocument in ediDocuments)
-            {
-                session.Store(ediDocument);
-            }
-        }
-
-        private static void CreateMirrorAndAnalyzePdfContent(IDocumentSession session, EdiDocument ediDocument)
-        {
-            if (ediDocument.MirrorUri!=null && (ediDocument.TextContentPerPage != null || ediDocument.DocumentUri.EndsWith(".zip"))) return;
-
-            bool documentRequiresTextAnlyzing = Path.GetExtension(ediDocument.DocumentUri) == ".pdf";
-            var pdfStream = DownloadAndCreateMirror(session, ediDocument, documentRequiresTextAnlyzing);
-            ediDocument.MirrorUri = new Uri(ediDocument.Id + Path.GetExtension(ediDocument.DocumentUri), UriKind.Relative);
-
+            var documentRequiresTextAnlyzing = Path.GetExtension(ediDocument.Filename) == ".pdf";
             if (documentRequiresTextAnlyzing)
             {
-                if (ediDocument.TextContentPerPage == null)
+                _log.Trace($"Analyzing pdf text content for {ediDocument.Filename} ({pdfStream.Length} bytes)");
+                using (var reader = new PdfReader(((MemoryStream) pdfStream).ToArray()))
                 {
-                    _log.Trace("Analyzing pdf text content for {ediDocumentId}", ediDocument.Id);
-                    ediDocument.TextContentPerPage = AnalyzePdfContent(pdfStream);
-                    pdfStream.Dispose();
-                }
-                else
-                {
-                    _log.Trace("Skipping analyze of pdf text content for {ediDocumentId}", ediDocument.Id);                    
-                }
-                _log.Trace("identified checkidentifiers are {CheckIdentifier}", ediDocument.CheckIdentifier);
-            }
-        }
-
-        private static string[] AnalyzePdfContent(Stream pdfStream)
-        {
-            string[] result;
-
-            using (var streamCopy = new MemoryStream())
-            {
-                pdfStream.CopyTo(streamCopy);
-                pdfStream.Position = 0;
-                streamCopy.Position = 0;
-                using (var reader = new PdfReader(streamCopy))
-                {
-                    result = Enumerable.Range(1, reader.NumberOfPages)
-                        .Select(pageNumber => PdfTextExtractor.GetTextFromPage(reader, pageNumber))
-                        .ToArray();
+                    ediDocument.BuildCheckIdentifierList(Enumerable.Range(1, reader.NumberOfPages)
+                        .Select(pageNumber => PdfTextExtractor.GetTextFromPage(reader, pageNumber)));
                 }
             }
 
-            return result;
+            return pdfStream;
         }
 
-        private static Stream DownloadAndCreateMirror(IDocumentSession session, EdiDocument ediDocument, bool returnValueRequired)
+        private async Task<Stream> DownloadAndCreateMirror(EdiDocument ediDocument)
         {
-            _log.Debug("testing mirror file availability for {ediDocumentId}", ediDocument.Id);
+            _log.Debug("Downloading copy of ressource {DocumentUri}", ediDocument.DocumentUri);
+            var (stream, filename) = await _httpClient.GetAsync(ediDocument.DocumentUri);
 
-            var pdfAttachmentExists = session.Advanced.Attachments.Exists(ediDocument.Id, "pdf");
+            ediDocument.Filename = filename;
 
-            _log.Debug(pdfAttachmentExists ? "the file is mirrored" : "The file does not exist");
+            _log.Debug("Stored copy of ressource {DocumentUri}", ediDocument.DocumentUri);
 
-            if (!pdfAttachmentExists)
-            {
-                _log.Debug("Downloading copy of ressource {DocumentUri}", ediDocument.DocumentUri);
-                Stream originalDataStream = GetFilestream(ediDocument.DocumentUri);
-                
-                var streamForAnalyzing = new MemoryStream((int)originalDataStream.Length);
-                originalDataStream.CopyTo(streamForAnalyzing);
-                originalDataStream.Position = 0;
-                streamForAnalyzing.Position = 0;
-
-                var hash = BuildHash(streamForAnalyzing);
-                streamForAnalyzing.Position = 0;
-
-                session.Advanced.GetMetadataFor(ediDocument)["pdf-hash"] = hash;
-                session.Advanced.Attachments.Store(ediDocument, "pdf", originalDataStream);
-
-                _log.Debug("Stored copy of ressource {DocumentUri}", ediDocument.DocumentUri);
-
-                if (!returnValueRequired)
-                {
-                    streamForAnalyzing.Dispose();
-                    return null;
-                }
-
-                return streamForAnalyzing;
-            }
-            else
-            {
-                if (!returnValueRequired) return null;
-
-                var pdfAttachment = session.Advanced.Attachments.Get(ediDocument, "pdf");
-                var stream = pdfAttachment.Stream;
-                var ms = new MemoryStream();
-                stream.CopyTo(ms);
-                ms.Position = 0;
-                return ms;
-            }
-        }
-
-        private static Stream GetFilestream(string documentUri)
-        {
-            var uriHash = BitConverter.ToString(SHA256.Create().ComputeHash(Encoding.UTF8.GetBytes(documentUri)));
-            var tempFolder = Environment.GetFolderPath(Environment.SpecialFolder.InternetCache);
-
-            var tempFileName = Path.Combine(tempFolder, uriHash + Path.GetExtension(documentUri));
-            if (!File.Exists(tempFileName))
-            {
-                _log.Trace("Needing to download {documentUri}", documentUri);
-                var client = new HttpClient();
-                var responseMessage = client.GetAsync(documentUri).Result;
-                responseMessage.EnsureSuccessStatusCode();
-                var bytes = responseMessage.Content.ReadAsByteArrayAsync().Result;
-                File.WriteAllBytes(tempFileName, bytes);
-            }
-            else
-            {
-                _log.Info("serving from cache: {documentUri}", documentUri);
-            }
-            return File.OpenRead(tempFileName);
-        }
-
-        private static string BuildHash(Stream stream)
-        {
-            _log.Trace("Starting hash computation.");
-            var hashBytes = SHA512.Create().ComputeHash(stream);
-            stream.Position = 0;
-            _log.Debug("Computed hash is {hash}", hashBytes);
-            return Convert.ToBase64String(hashBytes);
-        }
-
-        public static (bool thereIsMore,bool saveChangesRequired) UpdateExistingEdiDocuments(IDocumentSession session)
-        {
-            const int batchSize = 3;
-
-            var notMirroredDocuments = session
-                    .Query<EdiDocument, EdiDocuments_MirrorUri>()
-                    .Statistics(out var stats)
-                    .Customize(c => c.WaitForNonStaleResults())
-                    .Where(doc => doc.MirrorUri == null)
-                    .Take(batchSize)
-                    .ToList();
-
-            _log.Debug("Found {notMirroredDocumentsCount} documents which are not mirrored!", notMirroredDocuments.Count);
-
-
-            if (notMirroredDocuments.Count == 0) return (false, false);
-
-            foreach (var ediDocument in notMirroredDocuments.Take(batchSize))
-            {
-                CreateMirrorAndAnalyzePdfContent(session, ediDocument);
-            }
-            return ( thereIsMore: stats.TotalResults > batchSize
-                , saveChangesRequired: notMirroredDocuments.Count > 0);
+            return stream;
         }
     }
 }
