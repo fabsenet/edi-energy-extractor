@@ -135,10 +135,16 @@ namespace EdiEnergyExtractorCore
                     date = DateTime.ParseExact(filename.Substring(filename.Length - 8), "yyyyMMdd", _germanCulture);
                 }
 
-                //could be like "CONTRL-APERAK_AHB_2_3a_20141001"
+                //could be like "CONTRL-APERAK_AHB_2_3a_20141001_v2"
                 else if (Regex.IsMatch(filename, @"_\d{8}_v\d$"))
                 {
                     date = DateTime.ParseExact(filename.Substring(filename.Length - 8-3,8), "yyyyMMdd", _germanCulture);
+                }
+
+                //could be like "Codeliste-OBIS-Kennzahlen_2_2h_20190401_2"
+                else if (Regex.IsMatch(filename, @"_20\d{6}_\d$"))
+                {
+                    date = DateTime.ParseExact(filename.Substring(filename.Length - 8-2,8), "yyyyMMdd", _germanCulture);
                 }
                 else if (ValidFrom.HasValue && ValidFrom.Value.Year < 2017 && !ValidTo.HasValue)
                 {
@@ -185,6 +191,8 @@ namespace EdiEnergyExtractorCore
             {"INVOIC", "31"},
             {"REMADV", "33"},
             {"REQOTE", "35"},
+            {"COMDIS", "29"},
+            {"UTILTS", "25"},
         };
 
         public void BuildCheckIdentifierList(IEnumerable<string> textContentPerPage)
