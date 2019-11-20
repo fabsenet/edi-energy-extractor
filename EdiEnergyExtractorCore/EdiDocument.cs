@@ -150,6 +150,11 @@ namespace EdiEnergyExtractorCore
                 {
                     return ValidFrom.Value;
                 }
+                else if (Filename == "Aenderungsantrag_EBD.xlsx")
+                {
+                    //the source does not provide a date for this file, so we fake it
+                    return new DateTime(2019,11,11);
+                }
                 else
                 {
                     throw new NotImplementedException($"cannot guess date for document. (DocumentNameRaw='{DocumentNameRaw}', Filename='{Filename}')");

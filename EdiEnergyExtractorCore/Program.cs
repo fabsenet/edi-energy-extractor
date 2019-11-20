@@ -52,6 +52,8 @@ namespace EdiEnergyExtractorCore
             var shouldPreferCache = args.Any();
             var store = GetDocumentStore(config);
 
+            ReadExistingDataForAnalysis(store);
+
             var dataExtractor = new DataExtractor(new CacheForcableHttpClient(shouldPreferCache), store);
 
             //request data from web page
@@ -71,6 +73,31 @@ namespace EdiEnergyExtractorCore
                 session.SaveChanges();
             }
             _log.Debug("Done");
+        }
+
+        private static void ReadExistingDataForAnalysis(IDocumentStore store)
+        {
+            using(var session = store.OpenSession())
+            {
+                //select future AHBs
+                var docs = session.Query<EdiDocument>()
+                    .Where(d => d.IsAhb)
+                    .Where(d => d.ValidTo == null)
+                    .Where(d => d.IsLatestVersion)
+                    .ToList();
+
+                var existingPIs = docs
+                    .Where(d => d.CheckIdentifier?.Any() == true)
+                    .SelectMany(d => d.CheckIdentifier.Keys)
+                    .Distinct()
+                    .OrderBy(p=>p)
+                    .ToList();
+
+                foreach (var pi in existingPIs)
+                {
+                    Console.WriteLine($"{pi},");
+                }
+            }
         }
 
         private static IDocumentStore GetDocumentStore(IConfigurationRoot config)

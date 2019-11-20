@@ -15,7 +15,6 @@ namespace EdiEnergyExtractorCore
         private static readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1);
 
         private bool PreferCache { get; }
-        readonly HttpClient _httpClient = new HttpClient();
 
         public CacheForcableHttpClient(bool preferCache=false)
         {
@@ -46,7 +45,7 @@ namespace EdiEnergyExtractorCore
                         _log.Debug($"loading web ressource: {uri}");
                     }
 
-                    using (var result = await _httpClient.GetAsync(uri))
+                    using (var result = await new HttpClient().GetAsync(uri))
                     {
                         result.EnsureSuccessStatusCode();
 

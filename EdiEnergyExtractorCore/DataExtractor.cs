@@ -17,6 +17,20 @@ using Path = System.IO.Path;
 
 namespace EdiEnergyExtractorCore
 {
+    public class OnlineDocument
+    {
+        public string DocumentNameRaw { get; set; }
+        public DateTime? ValidFrom { get; set; }
+        public DateTime? ValidTo { get; set; }
+        public string DocumentUri { get; set; }
+    }
+
+    public class OnlineAndExistingMatchedDocument
+    {
+        public OnlineDocument Online { get; set; }
+        public EdiDocument Existing { get; set; }
+    }
+
     internal class DataExtractor
     {
         private IDocumentStore Store { get; }
@@ -45,15 +59,23 @@ namespace EdiEnergyExtractorCore
 
             Directory.CreateDirectory("SampleInput");
 
-            _rootHtml = (await Task.WhenAll(_webUris.Select(async (uri, index) =>
+            //_rootHtml = (await Task.WhenAll(_webUris.Select(async (uri, index) =>
+            //{
+            //    var (content, filename) = await _httpClient.GetAsync(uri);
+
+            //    _log.Debug("Receive response with {length} bytes for uri {uri}.", content.Length, uri);
+            //    return new StreamReader(content).ReadToEnd();
+
+            //}))).ToList();
+
+            _rootHtml = new List<string>(_webUris.Length);
+            foreach (var uri in _webUris)
             {
                 var (content, filename) = await _httpClient.GetAsync(uri);
 
-                _log.Debug("Receive response with {length} bytes.", content.Length);
-                return new StreamReader(content).ReadToEnd();
-
-            }))).ToList();
-
+                _log.Debug("Receive response with {length} bytes for uri {uri}.", content.Length, uri);
+                _rootHtml.Add(new StreamReader(content).ReadToEnd());
+            }
 
 
         }
@@ -82,33 +104,44 @@ namespace EdiEnergyExtractorCore
                 int newEdiDocumentCount = 0;
                 List<EdiDocument> existingDocuments;
 
+                List<OnlineAndExistingMatchedDocument> matchedDocs;
                 using (var session = Store.OpenSession())
                 {
                     existingDocuments = FetchExistingEdiDocuments(session);
+
+                    //select all data rows from table
+                    var onlineDocs = htmlDocs
+                        .SelectMany(d => d.SelectNodes("//table[1]//tr[.//a[@href]]"))
+                        .Select(tr => new OnlineDocument
+                        {
+                            DocumentNameRaw = Regex.Replace(tr.SelectSingleNode(".//td[1]").InnerText.Trim(), "[ ]+", " "), ValidFrom = ConvertToDateTime(tr.SelectSingleNode(".//td[2]")), ValidTo = ConvertToDateTime(tr.SelectSingleNode(".//td[3]")),
+                            DocumentUri = BuildDocumentUri(tr)
+                        })
+                        .Where(tr => !tr.DocumentNameRaw.Contains("EDIFACT Utilities"));
+
+
+                    matchedDocs = onlineDocs
+                        .Select(tr => new OnlineAndExistingMatchedDocument
+                        { Online = tr,
+                            Existing = existingDocuments.FirstOrDefault(d => d.DocumentNameRaw == tr.DocumentNameRaw)})
+                        .ToList();
+
+                    _log.Info($"Extracted {matchedDocs.Count} online listed documents.");
+
+                    foreach (var updateMatch in matchedDocs.Where(d => d.Existing != null))
+                    {
+                        updateMatch.Existing.ValidTo = updateMatch.Online.ValidTo;
+                        updateMatch.Existing.ValidFrom = updateMatch.Online.ValidFrom;
+                    }
+
+                    session.SaveChanges();
                 }
 
-                //select all data rows from table
-                var tasks = htmlDocs
-                    .SelectMany(d => d.SelectNodes("//table[1]//tr[.//a[@href]]"))
-                    .Select(tr => new
+                var tasks = matchedDocs
+                    .Where(d => d.Existing == null)
+                    .Select(async doc =>
                     {
-                        DocumentNameRaw = Regex.Replace(tr.SelectSingleNode(".//td[1]").InnerText.Trim(), "[ ]+", " "),
-                        ValidFrom = ConvertToDateTime(tr.SelectSingleNode(".//td[2]")),
-                        ValidTo = ConvertToDateTime(tr.SelectSingleNode(".//td[3]")),
-                        DocumentUri = BuildDocumentUri(tr),
-                    })
-                    .Where( tr => !tr.DocumentNameRaw.Contains("EDIFACT Utilities"))
-                    .Select(async tr =>
-                    {
-                        var fetchedDocument = existingDocuments.FirstOrDefault(d => d.DocumentNameRaw == tr.DocumentNameRaw);
-                        if (fetchedDocument != null)
-                        {
-                            fetchedDocument.ValidTo = tr.ValidTo;
-                            fetchedDocument.ValidFrom = tr.ValidFrom;
-                            return;
-                        }
-
-                        var newEdiDocument = new EdiDocument(tr.DocumentNameRaw, tr.DocumentUri, tr.ValidFrom, tr.ValidTo);
+                        var newEdiDocument = new EdiDocument(doc.Online.DocumentNameRaw, doc.Online.DocumentUri, doc.Online.ValidFrom, doc.Online.ValidTo);
                         var pdfStream = await CreateMirrorAndAnalyzePdfContent(newEdiDocument);
 
                         using (var session = Store.OpenSession())
