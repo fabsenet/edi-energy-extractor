@@ -164,32 +164,53 @@ namespace EdiEnergyExtractorCore
             using (var session = Store.OpenSession())
             {
                 //refetch
-                var ediDocuments = FetchExistingEdiDocuments(session);
+                var ediDocuments = FetchExistingEdiDocuments(session).                    Where(d => d.DocumentNameRaw.Contains("Regelun")).ToList();
 
                 //reset current latest document
                 ediDocuments.ForEach(doc => doc.IsLatestVersion = false);
 
                 //determine what the latest document version is again
-                var documentGroups = from doc in ediDocuments
+                var ediDocumentGroups = from doc in ediDocuments
+                                        where !doc.IsGeneralDocument
+                                        group doc by new
+                                        {
+                                            doc.BdewProcess,
+                                            doc.ValidFrom,
+                                            doc.ValidTo,
+                                            doc.IsAhb,
+                                            doc.IsMig,
+                                            doc.IsGeneralDocument,
+                                            ContainedMessageTypesString =
+                                                doc.ContainedMessageTypes != null && doc.ContainedMessageTypes.Any()
+                                                    ? doc.ContainedMessageTypes.Aggregate((m1, m2) => m1 + ", " + m2)
+                                                    : null
+                                        }
+                                        into g
+                                        select g;
+
+                var newestEdiDocumentsInEachGroup = ediDocumentGroups
+                    .Select(g => g.OrderByDescending(doc => doc.DocumentDate).First())
+                    .ToList();
+
+                newestEdiDocumentsInEachGroup.ForEach(doc => doc.IsLatestVersion = true);
+
+
+                var generalDocumentGroups = from doc in ediDocuments
+                    where doc.IsGeneralDocument
                     group doc by new
                     {
-                        doc.BdewProcess,
                         doc.ValidFrom,
                         doc.ValidTo,
-                        doc.IsAhb,
-                        doc.IsMig,
-                        doc.IsGeneralDocument,
-                        ContainedMessageTypesString =
-                            doc.ContainedMessageTypes != null && doc.ContainedMessageTypes.Any()
-                                ? doc.ContainedMessageTypes.Aggregate((m1, m2) => m1 + ", " + m2)
-                                : null
+                        doc.DocumentName
                     }
                     into g
                     select g;
 
-                var newestDocumentsInEachGroup = documentGroups.Select(g => g.OrderByDescending(doc => doc.DocumentDate).First()).ToList();
+                var newestGeneralDocumentsInEachGroup = generalDocumentGroups
+                    .Select(g => g.OrderByDescending(doc => doc.DocumentDate).First())
+                    .ToList();
 
-                newestDocumentsInEachGroup.ForEach(doc => doc.IsLatestVersion = true);
+                newestGeneralDocumentsInEachGroup.ForEach(doc => doc.IsLatestVersion = true);
 
                 session.SaveChanges();
             }
