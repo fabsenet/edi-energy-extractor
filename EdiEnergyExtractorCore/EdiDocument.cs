@@ -113,6 +113,11 @@ namespace EdiEnergyExtractorCore
                 //alternatively try parsing the date from the file name
                 var filename = Path.GetFileNameWithoutExtension(Filename);
 
+                if (filename.EndsWith("_end"))
+                {
+                    filename = filename.Substring(0, filename.Length - "_end".Length);
+                }
+
                 //could be like "APERAK_MIG_2_1a_2014_04_01"
                 if (Regex.IsMatch(filename, @"_\d{4}_\d{2}_\d{2}$"))
                 {
@@ -120,9 +125,10 @@ namespace EdiEnergyExtractorCore
                 }
 
                 //could be like "BK6-13-200_Beschluss_2014_04_16_Anlage_5"
-                else if (Regex.IsMatch(filename, @"_\d{4}_\d{2}_\d{2}_"))
+                //could be like "EDI_Energy_AWH_MaKo2020_2020.02.18_Lieferschein_final_V1.1"
+                else if (Regex.IsMatch(filename, @"_\d{4}(?:_|\.)\d{2}(?:_|\.)\d{2}_"))
                 {
-                    var match = Regex.Match(filename, @"_(?<year>\d{4})_(?<month>\d{2})_(?<day>\d{2})_", RegexOptions.ExplicitCapture);
+                    var match = Regex.Match(filename, @"_(?<year>\d{4})(?:_|\.)(?<month>\d{2})(?:_|\.)(?<day>\d{2})_", RegexOptions.ExplicitCapture);
                     var year = int.Parse(match.Groups["year"].Value);
                     var month = int.Parse(match.Groups["month"].Value);
                     var day = int.Parse(match.Groups["day"].Value);
@@ -136,7 +142,8 @@ namespace EdiEnergyExtractorCore
                 }
 
                 //could be like "CONTRL-APERAK_AHB_2_3a_20141001_v2"
-                else if (Regex.IsMatch(filename, @"_\d{8}_v\d$"))
+                // "PID_1_3_20200401_V3.pdf"
+                else if (Regex.IsMatch(filename, @"_\d{8}_[Vv]\d$"))
                 {
                     date = DateTime.ParseExact(filename.Substring(filename.Length - 8-3,8), "yyyyMMdd", _germanCulture);
                 }
@@ -149,6 +156,11 @@ namespace EdiEnergyExtractorCore
                 else if (ValidFrom.HasValue && ValidFrom.Value.Year < 2017 && !ValidTo.HasValue)
                 {
                     return ValidFrom.Value;
+                }
+                else if (filename == "INVOIC_MIG_2_7_2020401")
+                {
+                    //the source does not provide a date for this file, so we fake it
+                    return new DateTime(2020,4,1);
                 }
                 else if (Filename == "Aenderungsantrag_EBD.xlsx")
                 {
