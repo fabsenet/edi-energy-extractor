@@ -10,7 +10,7 @@ using NLog;
 namespace EdiEnergyExtractorCore
 {
 
-    [DebuggerDisplay("EdiDocument {DocumentNameRaw} ({Id})")]
+    [DebuggerDisplay("EdiDocument {ValidFrom}-{ValidTo} {DocumentNameRaw} ({Id})")]
     public class EdiDocument
     {
         private static readonly ILogger _log = LogManager.GetCurrentClassLogger();
