@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Configuration;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Net;
 using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
@@ -52,7 +54,7 @@ namespace EdiEnergyExtractorCore
             var shouldPreferCache = args.Any();
             var store = GetDocumentStore(config);
 
-            ReadExistingDataForAnalysis(store);
+            //ReadExistingDataForAnalysis(store);
 
             var dataExtractor = new DataExtractor(new CacheForcableHttpClient(shouldPreferCache), store);
 
@@ -72,7 +74,35 @@ namespace EdiEnergyExtractorCore
                 session.Store(stats);
                 session.SaveChanges();
             }
+
+            _log.Debug("saving local version of MIG files");
+            SaveMigFiles(store);
             _log.Debug("Done");
+        }
+
+        private static void SaveMigFiles(IDocumentStore store)
+        {
+            using(var session = store.OpenSession())
+            {
+                var docsToSave = session.Query<EdiDocument>()
+                    .Where(d => d.IsLatestVersion)
+                    .Where(d => d.IsMig)
+                    .Where(d => d.ValidFrom > DateTime.Now);
+
+                foreach (var doc in docsToSave)
+                {
+                    string raw = doc.DocumentNameRaw.Replace("\n", " ");
+                    var fn = $"{string.Join("_", doc.ContainedMessageTypes.OrderBy(m => m))}_MIG_{doc.MessageTypeVersion}_{doc.DocumentDate.Value.ToString("yyyy-MM-dd")}{Path.GetExtension(doc.Filename)}";
+
+                    Console.WriteLine(fn);
+                    Console.WriteLine(raw);
+
+                    using var file = File.OpenWrite(fn);
+
+                    session.Advanced.Attachments.Get(doc, "pdf").Stream.CopyTo(file);
+                    file.Close();
+                }
+            }
         }
 
         private static void ReadExistingDataForAnalysis(IDocumentStore store)

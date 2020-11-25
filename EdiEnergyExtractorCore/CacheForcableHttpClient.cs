@@ -45,7 +45,9 @@ namespace EdiEnergyExtractorCore
                         _log.Debug($"loading web ressource: {uri}");
                     }
 
-                    using (var result = await new HttpClient().GetAsync(uri))
+                    HttpClient httpClient = new HttpClient(new HttpClientHandler());
+
+                    using (var result = await httpClient.GetAsync(uri))
                     {
                         result.EnsureSuccessStatusCode();
 
