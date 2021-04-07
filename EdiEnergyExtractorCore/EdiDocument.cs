@@ -104,7 +104,7 @@ namespace EdiEnergyExtractorCore
             if (DocumentNameRaw.Contains("Stand:"))
             {
                 //"UTILMD AHB GPKE GeLi Gas 6.0a\r\n Konsolidierte Lesefassung mit Fehlerkorrekturen\r\n Stand: 29. August 2014"
-                var dateString = DocumentNameRaw.Split(new[] {"Stand:"}, StringSplitOptions.None)[1].Trim();
+                var dateString = DocumentNameRaw.Split(new[] { "Stand:" }, StringSplitOptions.None)[1].Trim();
 
                 date = DateTime.Parse(dateString, _germanCulture);
             }
@@ -145,13 +145,13 @@ namespace EdiEnergyExtractorCore
                 // "PID_1_3_20200401_V3.pdf"
                 else if (Regex.IsMatch(filename, @"_\d{8}_[Vv]\d$"))
                 {
-                    date = DateTime.ParseExact(filename.Substring(filename.Length - 8-3,8), "yyyyMMdd", _germanCulture);
+                    date = DateTime.ParseExact(filename.Substring(filename.Length - 8 - 3, 8), "yyyyMMdd", _germanCulture);
                 }
 
                 //could be like "Codeliste-OBIS-Kennzahlen_2_2h_20190401_2"
                 else if (Regex.IsMatch(filename, @"_20\d{6}_\d$"))
                 {
-                    date = DateTime.ParseExact(filename.Substring(filename.Length - 8-2,8), "yyyyMMdd", _germanCulture);
+                    date = DateTime.ParseExact(filename.Substring(filename.Length - 8 - 2, 8), "yyyyMMdd", _germanCulture);
                 }
                 else if (ValidFrom.HasValue && ValidFrom.Value.Year < 2017 && !ValidTo.HasValue)
                 {
@@ -160,12 +160,17 @@ namespace EdiEnergyExtractorCore
                 else if (filename == "INVOIC_MIG_2_7_2020401")
                 {
                     //the source does not provide a date for this file, so we fake it
-                    return new DateTime(2020,4,1);
+                    return new DateTime(2020, 4, 1);
                 }
                 else if (Filename == "Aenderungsantrag_EBD.xlsx")
                 {
                     //the source does not provide a date for this file, so we fake it
-                    return new DateTime(2019,11,11);
+                    return new DateTime(2019, 11, 11);
+                }
+                //could be like "APERAK_MIG_2_1a_2014_04_01"
+                else if (Regex.IsMatch(filename, @"_\d{4}-\d{2}-\d{2}$"))
+                {
+                    date = DateTime.ParseExact(filename.Substring(filename.Length - 10), "yyyy-MM-dd", _germanCulture);
                 }
                 else
                 {

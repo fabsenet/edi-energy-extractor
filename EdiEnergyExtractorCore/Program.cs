@@ -87,7 +87,8 @@ namespace EdiEnergyExtractorCore
                 var docsToSave = session.Query<EdiDocument>()
                     .Where(d => d.IsLatestVersion)
                     .Where(d => d.IsMig)
-                    .Where(d => d.ValidFrom > DateTime.Now);
+                    .Where(d => d.ValidTo == null)
+                    .ToList();
 
                 foreach (var doc in docsToSave)
                 {
