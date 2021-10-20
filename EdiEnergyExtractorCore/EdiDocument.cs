@@ -172,6 +172,23 @@ namespace EdiEnergyExtractorCore
                 {
                     date = DateTime.ParseExact(filename.Substring(filename.Length - 10), "yyyy-MM-dd", _germanCulture);
                 }
+                else if (Filename == "Beschaffungsanforderung FB 1.0a.pdf")
+                {
+                    return new DateTime(2021, 10, 1);
+                }
+                else if (Filename == "Beschaffungsanforderung AWT 1.0a.pdf")
+                {
+                    return new DateTime(2021, 10, 1);
+                }
+                else if (Filename == "Beschaffungsvorbehalt AWT 1.0a.pdf")
+                {
+                    return new DateTime(2021, 10, 1);
+                }
+                else if (Filename == "urn-entsoe-eu-local-extension-types XSD 1.0a_informatorische Lesefassung_2021001.xsd")
+                {
+                    //date in filename is missing a 1 !
+                    return new DateTime(2021, 10, 1);
+                }
                 else
                 {
                     throw new NotImplementedException($"cannot guess date for document. (DocumentNameRaw='{DocumentNameRaw}', Filename='{Filename}')");
@@ -215,6 +232,8 @@ namespace EdiEnergyExtractorCore
             {"REQOTE", "35"},
             {"COMDIS", "29"},
             {"UTILTS", "25"},
+            {"PARTIN", "37"},
+            {"ORDCHG", "39"}
         };
 
         public void BuildCheckIdentifierList(IEnumerable<string> textContentPerPage)

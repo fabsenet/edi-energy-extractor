@@ -34,7 +34,7 @@ namespace EdiEnergyExtractorCore
 
     internal class DataExtractor
     {
-        private IDocumentStore Store { get; }
+        private IDocumentStore? Store { get; }
         private static readonly ILogger _log = LogManager.GetCurrentClassLogger();
 
         private List<string> _rootHtml;
@@ -45,7 +45,7 @@ namespace EdiEnergyExtractorCore
         public DataExtractor(CacheForcableHttpClient httpClient, IDocumentStore store)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-            Store = store ?? throw new ArgumentNullException(nameof(store));
+            Store = store;
         }
 
         private readonly string[] _webUris =
@@ -106,9 +106,9 @@ namespace EdiEnergyExtractorCore
                 List<EdiDocument> existingDocuments;
 
                 List<OnlineAndExistingMatchedDocument> matchedDocs;
-                using (var session = Store.OpenSession())
+                using (var session = Store?.OpenSession())
                 {
-                    existingDocuments = FetchExistingEdiDocuments(session);
+                    existingDocuments = session != null ? FetchExistingEdiDocuments(session) : new List<EdiDocument>();
 
                     //select all data rows from table
                     var onlineDocs = htmlDocs
@@ -139,7 +139,7 @@ namespace EdiEnergyExtractorCore
                         updateMatch.Existing.ValidFrom = updateMatch.Online.ValidFrom;
                     }
 
-                    session.SaveChanges();
+                    session?.SaveChanges();
                 }
 
                 var tasks = matchedDocs
@@ -149,13 +149,16 @@ namespace EdiEnergyExtractorCore
                         var newEdiDocument = new EdiDocument(doc.Online.DocumentNameRaw, doc.Online.DocumentUri, doc.Online.ValidFrom, doc.Online.ValidTo);
                         var pdfStream = await CreateMirrorAndAnalyzePdfContent(newEdiDocument);
 
-                        using (var session = Store.OpenSession())
+                        if (Store != null)
                         {
-                            session.Store(newEdiDocument);
-                            session.Advanced.Attachments.Store(newEdiDocument, "pdf", pdfStream);
-                            ++newEdiDocumentCount;
-                            _log.Info($"saving session changes after {newEdiDocumentCount} new documents.");
-                            session.SaveChanges();
+                            using (var session = Store.OpenSession())
+                            {
+                                session.Store(newEdiDocument);
+                                session.Advanced.Attachments.Store(newEdiDocument, "pdf", pdfStream);
+                                ++newEdiDocumentCount;
+                                _log.Info($"saving session changes after {newEdiDocumentCount} new documents.");
+                                session.SaveChanges();
+                            }
                         }
 
                     });

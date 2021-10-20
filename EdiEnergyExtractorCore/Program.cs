@@ -5,7 +5,10 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Reflection;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
+using CommandLine;
+using CommandLine.Attributes;
 using Microsoft.Extensions.Configuration;
 using NLog;
 using NLog.Config;
@@ -15,6 +18,15 @@ using Raven.Client.Documents.Indexes;
 
 namespace EdiEnergyExtractorCore
 {
+    record Options
+    {
+        [OptionalArgument(false, "prefercache", "Set to true to prefer cache over actual web access.")]
+        public bool PreferCache { get; set; }
+
+        [OptionalArgument(false, "dryrun", "Set to true to not opperate on the database at all. This will only download the latest data from edi-energy.de")]
+        public bool DryRun { get; set; }
+    }
+
     static class Program
     {
         private static readonly ILogger _log = LogManager.GetCurrentClassLogger();
@@ -25,8 +37,10 @@ namespace EdiEnergyExtractorCore
             try
             {
 #endif
-                _log.Debug("EdiEnergyExtractor started.");
-                await InnerMain(args);
+            if (!Parser.TryParse(args, out Options options)) return; 
+
+            _log.Debug("EdiEnergyExtractor started.");
+                await InnerMain(options);
 #if !DEBUG
             }
             catch (Exception ex)
@@ -42,21 +56,20 @@ namespace EdiEnergyExtractorCore
             LogManager.Shutdown();
         }
 
-        private static async Task InnerMain(string[] args)
+        private static async Task InnerMain(Options options)
         {
-            _log.Trace("Process called with {arguments}", args);
+            _log.Trace("Process called with {arguments}", options);
 
             var config = new ConfigurationBuilder()
                 .AddJsonFile("appsettings.json")
                 .AddEnvironmentVariables("EdiDocuments_")
                 .Build();
 
-            var shouldPreferCache = args.Any();
-            var store = GetDocumentStore(config);
+            var store = options.DryRun? null : GetDocumentStore(config);
 
             //ReadExistingDataForAnalysis(store);
 
-            var dataExtractor = new DataExtractor(new CacheForcableHttpClient(shouldPreferCache), store);
+            var dataExtractor = new DataExtractor(new CacheForcableHttpClient(options.PreferCache), store);
 
             //request data from web page
             await dataExtractor.LoadFromWeb();
@@ -64,6 +77,11 @@ namespace EdiEnergyExtractorCore
             _log.Trace("AnalyzeResult started");
             await dataExtractor.AnalyzeResult();
 
+            if (options.DryRun)
+            {
+                _log.Info("dry run done!");
+                return;
+            }
 
 
             _log.Debug("saving final stats");
@@ -84,16 +102,17 @@ namespace EdiEnergyExtractorCore
         {
             using(var session = store.OpenSession())
             {
+                var dateBoundary = DateTime.Now.AddMonths(4);
                 var docsToSave = session.Query<EdiDocument>()
                     .Where(d => d.IsLatestVersion)
                     .Where(d => d.IsMig)
-                    .Where(d => d.ValidTo == null)
+                    .Where(d => d.ValidTo == null || d.ValidTo > dateBoundary)
                     .ToList();
 
                 foreach (var doc in docsToSave)
                 {
                     string raw = doc.DocumentNameRaw.Replace("\n", " ");
-                    var fn = $"{string.Join("_", doc.ContainedMessageTypes.OrderBy(m => m))}_MIG_{doc.MessageTypeVersion}_{doc.DocumentDate.Value.ToString("yyyy-MM-dd")}{Path.GetExtension(doc.Filename)}";
+                    var fn = $"{string.Join("_", (doc.ContainedMessageTypes??new string[] { "unknown"}).OrderBy(m => m))}_MIG_{doc.MessageTypeVersion}_{doc.DocumentDate.Value.ToString("yyyy-MM-dd")}{Path.GetExtension(doc.Filename)}";
 
                     Console.WriteLine(fn);
                     Console.WriteLine(raw);
@@ -136,9 +155,20 @@ namespace EdiEnergyExtractorCore
             _log.Trace("Initializing RavenDB DocumentStore");
             var store = new DocumentStore()
             {
-                Urls = new[] {config["DatabaseUrl"]},
+                Urls = new[] { config["DatabaseUrl"] },
                 Database = config["DatabaseName"]
-            }.Initialize();
+            };
+            string databaseCertificate = config["DatabaseCertificate"];
+            if (!string.IsNullOrEmpty(databaseCertificate))
+            {
+                // powershell: [Environment]::SetEnvironmentVariable("EdiDocuments_DatabaseUrl", "https://sazesla11442:10204/", "User")
+                // powershell: [Environment]::SetEnvironmentVariable("EdiDocuments_DatabaseName", "EdiDocuments", "User")
+                // powershell: [Environment]::SetEnvironmentVariable("EdiDocuments_DatabaseCertificate", "C:\....pfx", "User")
+                if (!File.Exists(databaseCertificate)) throw new Exception($"certificate file does not exist: {databaseCertificate}");
+                store.Certificate = new X509Certificate2(databaseCertificate);
+            }
+
+            store.Initialize();
             _log.Trace("Creating RavenDB indexe");
             IndexCreation.CreateIndexes(Assembly.GetExecutingAssembly(), store);
 

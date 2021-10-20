@@ -6,7 +6,7 @@ namespace EdiEnergyExtractorCore
     {
         public static readonly string[] MessageTypes =
         {
-            "APERAK", "CONTRL", "IFTSTA", "INSRPT", "INVOIC", "MSCONS", "ORDERS", "ORDRSP", "PRICAT", "QUOTES", "REMADV", "REQOTE", "UTILMD", "COMDIS", "UTILTS"
+            "APERAK", "CONTRL", "IFTSTA", "INSRPT", "INVOIC", "MSCONS", "ORDERS", "ORDRSP", "PRICAT", "QUOTES", "REMADV", "REQOTE", "UTILMD", "COMDIS", "UTILTS", "PARTIN", "ORDCHG"
         };
 
         /// <summary>

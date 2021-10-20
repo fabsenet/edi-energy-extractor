@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
@@ -19,13 +20,14 @@ namespace EdiEnergyExtractorCore
         public CacheForcableHttpClient(bool preferCache=false)
         {
             PreferCache = preferCache;
+            Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory, "cache"));
         }
 
         public async Task<(Stream content, string filename)> GetAsync(string uri)
         {
-            var tempFileBaseName = Path.GetTempPath() + "edidocs_"+ BitConverter.ToString(MD5.Create().ComputeHash(Encoding.UTF8.GetBytes(uri)));
-            var tempResponseFileName = tempFileBaseName + ".cache";
-            var tempFilenameFileName = tempFileBaseName + ".name";
+            var tempFileBaseName = Path.Combine( AppContext.BaseDirectory, "cache", $"edidocs_{BitConverter.ToString(MD5.Create().ComputeHash(Encoding.UTF8.GetBytes(uri)))}");
+            var tempResponseFileName = tempFileBaseName + ".cachedata";
+            var tempFilenameFileName = tempFileBaseName + ".cachename";
 
             var cacheExists = File.Exists(tempResponseFileName) && File.Exists(tempFilenameFileName);
             if (!cacheExists || !PreferCache)
@@ -45,7 +47,12 @@ namespace EdiEnergyExtractorCore
                         _log.Debug($"loading web ressource: {uri}");
                     }
 
-                    HttpClient httpClient = new HttpClient(new HttpClientHandler());
+                    var httpClient = new HttpClient(new HttpClientHandler
+                    {
+                        UseProxy = true,
+                        Proxy = null, // use system proxy
+                        DefaultProxyCredentials = CredentialCache.DefaultNetworkCredentials
+                    });
 
                     using (var result = await httpClient.GetAsync(uri))
                     {
