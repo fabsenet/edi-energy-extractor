@@ -111,7 +111,8 @@ namespace EdiEnergyExtractorCore
             else
             {
                 //alternatively try parsing the date from the file name
-                var filename = Path.GetFileNameWithoutExtension(Filename);
+                var filename = Path.GetFileNameWithoutExtension(Filename)
+                .Replace("_202112120_", "_20211220_"); //fix typo in filename='Ã?nderungshistorie XML-Datenformate_202112120_Onlineversion'
 
                 if (filename.EndsWith("_end"))
                 {
@@ -143,15 +144,15 @@ namespace EdiEnergyExtractorCore
 
                 //could be like "CONTRL-APERAK_AHB_2_3a_20141001_v2"
                 // "PID_1_3_20200401_V3.pdf"
-                else if (Regex.IsMatch(filename, @"_\d{8}_[Vv]\d$"))
-                {
-                    date = DateTime.ParseExact(filename.Substring(filename.Length - 8 - 3, 8), "yyyyMMdd", _germanCulture);
-                }
-
                 //could be like "Codeliste-OBIS-Kennzahlen_2_2h_20190401_2"
-                else if (Regex.IsMatch(filename, @"_20\d{6}_\d$"))
+                // or "Ã?nderungshistorie XML-Datenformate_202112120_Onlineversion"
+                else if (Regex.IsMatch(filename, @"_202[1-3][0-1]\d[0-3]\d_[^_]*$"))
                 {
-                    date = DateTime.ParseExact(filename.Substring(filename.Length - 8 - 2, 8), "yyyyMMdd", _germanCulture);
+                    var match = Regex.Match(filename, @"_(?<year>\d{4})(?<month>\d{2})(?<day>\d{2})_", RegexOptions.ExplicitCapture);
+                    var year = int.Parse(match.Groups["year"].Value);
+                    var month = int.Parse(match.Groups["month"].Value);
+                    var day = int.Parse(match.Groups["day"].Value);
+                    date = new DateTime(year, month, day);
                 }
                 else if (ValidFrom.HasValue && ValidFrom.Value.Year < 2017 && !ValidTo.HasValue)
                 {
@@ -189,9 +190,18 @@ namespace EdiEnergyExtractorCore
                     //date in filename is missing a 1 !
                     return new DateTime(2021, 10, 1);
                 }
+                //could be like "Ã?nderungshistorie XML-Datenformate_20211206_Onlineversion"
+                else if (Regex.IsMatch(filename, @"_20\d{6}_"))
+                {
+                    var match = Regex.Match(filename, @"_(?<year>\d{4})(?<month>\d{2})(?<day>\d{2})_", RegexOptions.ExplicitCapture);
+                    var year = int.Parse(match.Groups["year"].Value);
+                    var month = int.Parse(match.Groups["month"].Value);
+                    var day = int.Parse(match.Groups["day"].Value);
+                    date = new DateTime(year, month, day);
+                }
                 else
                 {
-                    throw new NotImplementedException($"cannot guess date for document. (DocumentNameRaw='{DocumentNameRaw}', Filename='{Filename}')");
+                    throw new NotImplementedException($"cannot guess date for document. (DocumentNameRaw='{DocumentNameRaw}', filename='{filename}')");
                 }
             }
             return date;
