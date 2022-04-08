@@ -85,6 +85,10 @@ namespace EdiEnergyExtractorCore
             if (IsGeneralDocument) return null;
 
             var regex = new Regex(@"(\d\.\d[a-z]{0,1})");
+
+            var isUtiltsErrorUpstream = DocumentNameRaw == "UTILTS MIG\n 1.1e" && ValidFrom == new DateTime(2022, 10, 1);
+            if(isUtiltsErrorUpstream) return "1.1a";
+
             var match = regex.Match(DocumentNameRaw);
             if (!match.Success)
             {
