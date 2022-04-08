@@ -18,7 +18,7 @@ using Path = System.IO.Path;
 
 namespace EdiEnergyExtractorCore
 {
-    public class OnlineDocument
+    public record OnlineDocument
     {
         public string DocumentNameRaw { get; set; }
         public DateTime? ValidFrom { get; set; }
@@ -50,8 +50,8 @@ namespace EdiEnergyExtractorCore
 
         private readonly string[] _webUris =
         {
-            "https://www.edi-energy.de/index.php?id=38&tx_bdew_bdew%5Bview%5D=now&tx_bdew_bdew%5Baction%5D=list&tx_bdew_bdew%5Bcontroller%5D=Dokument",
-            "https://www.edi-energy.de/index.php?id=38&tx_bdew_bdew%5Bview%5D=future&tx_bdew_bdew%5Baction%5D=list&tx_bdew_bdew%5Bcontroller%5D=Dokument"
+            "https://www.edi-energy.de/index.php?id=38&tx_bdew_bdew%5Bview%5D=now&tx_bdew_bdew%5Baction%5D=list&tx_bdew_bdew%5Bcontroller%5D=Dokument&cHash=5d1142e54d8f3a1913af8e4cc56c71b2",
+            "https://www.edi-energy.de/index.php?id=38&tx_bdew_bdew%5Bview%5D=future&tx_bdew_bdew%5Baction%5D=list&tx_bdew_bdew%5Bcontroller%5D=Dokument&cHash=325de212fe24061e83e018a2223e6185"
         };
 
         public async Task LoadFromWeb()
@@ -59,15 +59,6 @@ namespace EdiEnergyExtractorCore
             _log.Debug("Loading source data from web.");
 
             Directory.CreateDirectory("SampleInput");
-
-            //_rootHtml = (await Task.WhenAll(_webUris.Select(async (uri, index) =>
-            //{
-            //    var (content, filename) = await _httpClient.GetAsync(uri);
-
-            //    _log.Debug("Receive response with {length} bytes for uri {uri}.", content.Length, uri);
-            //    return new StreamReader(content).ReadToEnd();
-
-            //}))).ToList();
 
             _rootHtml = new List<string>(_webUris.Length);
             foreach (var uri in _webUris)
@@ -120,10 +111,13 @@ namespace EdiEnergyExtractorCore
                             ValidTo = ConvertToDateTime(tr.SelectSingleNode(".//td[3]")),
                             DocumentUri = BuildDocumentUri(tr)
                         })
-                        .Where(tr => !tr.DocumentNameRaw.Contains("EDIFACT Utilities"));
+                        .Where(tr => !tr.DocumentNameRaw.Contains("EDIFACT Utilities"))
+                        .Where(d=>!d.DocumentNameRaw.Contains("informatorische Lesefassung", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
 
 
                     matchedDocs = onlineDocs
+.Where(o=>o.DocumentNameRaw.Contains("INVOIC"))
                         .Select(tr => new OnlineAndExistingMatchedDocument
                         {
                             Online = tr,
@@ -142,31 +136,28 @@ namespace EdiEnergyExtractorCore
                     session?.SaveChanges();
                 }
 
-                var tasks = matchedDocs
-                    .Where(d => d.Existing == null)
-                    .Select(async doc =>
-                    {
-                        var newEdiDocument = new EdiDocument(doc.Online.DocumentNameRaw, doc.Online.DocumentUri, doc.Online.ValidFrom, doc.Online.ValidTo);
-                        var pdfStream = await CreateMirrorAndAnalyzePdfContent(newEdiDocument);
-
-                        if (Store != null)
-                        {
-                            using (var session = Store.OpenSession())
-                            {
-                                session.Store(newEdiDocument);
-                                session.Advanced.Attachments.Store(newEdiDocument, "pdf", pdfStream);
-                                ++newEdiDocumentCount;
-                                _log.Info($"saving session changes after {newEdiDocumentCount} new documents.");
-                                session.SaveChanges();
-                            }
-                        }
-
-                    });
-
-                foreach (var task in tasks)
+                foreach(var doc in matchedDocs.Where(d => d.Existing == null))
                 {
-                    await task;
-                }
+                    var newEdiDocument = new EdiDocument(doc.Online.DocumentNameRaw, doc.Online.DocumentUri, doc.Online.ValidFrom, doc.Online.ValidTo);
+                    var pdfStream = await CreateMirrorAndAnalyzePdfContent(newEdiDocument);
+
+                    if (Store != null)
+                    {
+                        using var session = Store.OpenSession();
+                        session.Store(newEdiDocument);
+                        session.Advanced.Attachments.Store(newEdiDocument, "pdf", pdfStream);
+                        ++newEdiDocumentCount;
+                        _log.Info($"saving session changes after {newEdiDocumentCount} new documents.");
+                        session.SaveChanges();
+                    }
+
+                };
+            }
+
+            if (Store == null)
+            {
+                _log.Info($"The dryrun ends here!");
+                return;
             }
 
             UpdateValidToValuesOnGeneralDocuments();
@@ -176,129 +167,127 @@ namespace EdiEnergyExtractorCore
 
         private void UpdateValidToValuesOnGeneralDocuments()
         {
-            using (var session = Store.OpenSession())
+            using var session = Store.OpenSession();
+            
+            //refetch
+            var ediDocuments = session.Query<EdiDocument>()
+                .Where(e => e.IsGeneralDocument)
+                .ToList();
+
+            var generalDocumentsGroups = from doc in ediDocuments
+                                         orderby doc.ValidFrom descending, doc.DocumentDate descending
+
+                                         group doc by new
+                                         {
+                                             doc.DocumentName,
+                                             ContainedMessageTypesString =
+                                                 doc.ContainedMessageTypes != null && doc.ContainedMessageTypes.Any()
+                                                     ? doc.ContainedMessageTypes.OrderBy(m => m).Aggregate((m1, m2) => m1 + ", " + m2)
+                                                     : null
+                                         }
+                                    into g
+                                         where g.Count(e => !e.ValidTo.HasValue) > 1
+                                         select g;
+
+
+            foreach (var generalDocumentsGroup in generalDocumentsGroups)
             {
-                //refetch
-                var ediDocuments = session.Query<EdiDocument>()
-                    .Where(e => e.IsGeneralDocument)
-                    .ToList();
+                EdiDocument lastDocument = null;
 
-                var generalDocumentsGroups = from doc in ediDocuments
-                                        orderby doc.ValidFrom descending, doc.DocumentDate descending
-
-                                        group doc by new
-                                        {
-                                            doc.DocumentName,
-                                            ContainedMessageTypesString =
-                                                doc.ContainedMessageTypes != null && doc.ContainedMessageTypes.Any()
-                                                    ? doc.ContainedMessageTypes.OrderBy(m => m).Aggregate((m1, m2) => m1 + ", " + m2)
-                                                    : null
-                                        }
-                                        into g
-                                        where g.Count(e => !e.ValidTo.HasValue) > 1
-                                        select g;
-
-
-                foreach (var generalDocumentsGroup in generalDocumentsGroups)
+                foreach (var ediDocument in generalDocumentsGroup)
                 {
-                    EdiDocument lastDocument = null;
-
-                    foreach (var ediDocument in generalDocumentsGroup)
+                    if (lastDocument != null && !ediDocument.ValidTo.HasValue)
                     {
-                        if (lastDocument != null && !ediDocument.ValidTo.HasValue)
+                        //this document needs a new validto!
+                        if (ediDocument.ValidFrom == lastDocument.ValidFrom)
                         {
-                            //this document needs a new validto!
-                            if (ediDocument.ValidFrom == lastDocument.ValidFrom)
-                            {
-                                ediDocument.ValidTo = lastDocument.DocumentDate.Value;
-                            }
-                            else
-                            {
-                                Debug.Assert(lastDocument.ValidFrom.HasValue, "lastDocument.ValidFrom.HasValue");
-                                ediDocument.ValidTo = lastDocument.ValidFrom.Value.Date.Subtract(TimeSpan.FromDays(1));
-                            }
+                            ediDocument.ValidTo = lastDocument.DocumentDate.Value;
                         }
-                        lastDocument = ediDocument;
+                        else
+                        {
+                            Debug.Assert(lastDocument.ValidFrom.HasValue, "lastDocument.ValidFrom.HasValue");
+                            ediDocument.ValidTo = lastDocument.ValidFrom.Value.Date.Subtract(TimeSpan.FromDays(1));
+                        }
                     }
+                    lastDocument = ediDocument;
                 }
-
-                session.SaveChanges();
             }
+
+            session.SaveChanges();
         }
 
         private void UpdateValidToValuesOnEdiDocuments()
         {
-            using (var session = Store.OpenSession())
-            {
-                //refetch
-                var ediDocuments = session.Query<EdiDocument>()
-                    .Where(e => e.IsAhb || e.IsMig)
-                    .Where(e => !e.IsGeneralDocument)
-                    .Where(e => e.ContainedMessageTypes.Any())
-                    .ToList();
+            using var session = Store.OpenSession();
+            
+            //refetch
+            var ediDocuments = session.Query<EdiDocument>()
+                .Where(e => e.IsAhb || e.IsMig)
+                .Where(e => !e.IsGeneralDocument)
+                .Where(e => e.ContainedMessageTypes.Any())
+                .ToList();
 
- //ediDocuments = ediDocuments.Where(e => e.ContainedMessageTypes?.Contains("UTILMD") == true && e.ContainedMessageTypes.Count()>1).ToList();
+            //ediDocuments = ediDocuments.Where(e => e.ContainedMessageTypes?.Contains("UTILMD") == true && e.ContainedMessageTypes.Count()>1).ToList();
 
-                //determine what the latest document version is again
-                var ediDocumentGroups = from doc in ediDocuments
-                                        where !doc.IsGeneralDocument
-                                        orderby doc.ValidFrom descending, doc.MessageTypeVersion descending, doc.DocumentDate descending
-                                        
-                                        group doc by new
-                                        {
-                                            doc.BdewProcess,
-                                            doc.IsAhb,
-                                            doc.IsMig,
-                                            doc.IsGeneralDocument,
-                                            ContainedMessageTypesString =
-                                                doc.ContainedMessageTypes != null && doc.ContainedMessageTypes.Any()
-                                                    ? doc.ContainedMessageTypes.OrderBy(m => m).Aggregate((m1, m2) => m1 + ", " + m2)
-                                                    : null
-                                        }
-                                        into g
-                                        where g.Count(e => !e.ValidTo.HasValue) > 1
-                                        select g;
+            //determine what the latest document version is again
+            var ediDocumentGroups = from doc in ediDocuments
+                                    where !doc.IsGeneralDocument
+                                    orderby doc.ValidFrom descending, doc.MessageTypeVersion descending, doc.DocumentDate descending
 
-                
-                foreach (var ediDocumentGroup in ediDocumentGroups)
-                {
-                    EdiDocument lastDocument = null;
-
-                    foreach (var ediDocument in ediDocumentGroup)
-                    {
-                        if (lastDocument != null && !ediDocument.ValidTo.HasValue)
-                        {
-                            //this document needs a new validto!
-                            if(ediDocument.ValidFrom == lastDocument.ValidFrom)
-                            {
-                                if(ediDocument.MessageTypeVersion == lastDocument.MessageTypeVersion)
-                                {
-                                    ediDocument.ValidTo = lastDocument.ValidTo;
-                                }
-                                else
-                                {
-                                    //same validfrom date, same messagetype but different messagetypeversion?
-                                    if(ediDocument.ValidFrom == new DateTime(2021, 4, 1))
+                                    group doc by new
                                     {
-                                        //they had released old messageversions at some point, we "fix" them by artificially updating there version number
-                                        ediDocument.MessageTypeVersion = lastDocument.MessageTypeVersion;
+                                        doc.BdewProcess,
+                                        doc.IsAhb,
+                                        doc.IsMig,
+                                        doc.IsGeneralDocument,
+                                        ContainedMessageTypesString =
+                                            doc.ContainedMessageTypes != null && doc.ContainedMessageTypes.Any()
+                                                ? doc.ContainedMessageTypes.OrderBy(m => m).Aggregate((m1, m2) => m1 + ", " + m2)
+                                                : null
                                     }
-                                    ediDocument.ValidTo = lastDocument.DocumentDate.Value;
-                                }
+                                    into g
+                                    where g.Count(e => !e.ValidTo.HasValue) > 1
+                                    select g;
 
+
+            foreach (var ediDocumentGroup in ediDocumentGroups)
+            {
+                EdiDocument lastDocument = null;
+
+                foreach (var ediDocument in ediDocumentGroup)
+                {
+                    if (lastDocument != null && !ediDocument.ValidTo.HasValue)
+                    {
+                        //this document needs a new validto!
+                        if (ediDocument.ValidFrom == lastDocument.ValidFrom)
+                        {
+                            if (ediDocument.MessageTypeVersion == lastDocument.MessageTypeVersion)
+                            {
+                                ediDocument.ValidTo = lastDocument.ValidTo;
                             }
                             else
                             {
-                                Debug.Assert(lastDocument.ValidFrom.HasValue, "lastDocument.ValidFrom.HasValue");
-                                ediDocument.ValidTo = lastDocument.ValidFrom.Value.Date.Subtract(TimeSpan.FromDays(1));
+                                //same validfrom date, same messagetype but different messagetypeversion?
+                                if (ediDocument.ValidFrom == new DateTime(2021, 4, 1))
+                                {
+                                    //they had released old messageversions at some point, we "fix" them by artificially updating there version number
+                                    ediDocument.MessageTypeVersion = lastDocument.MessageTypeVersion;
+                                }
+                                ediDocument.ValidTo = lastDocument.DocumentDate.Value;
                             }
-                        }
-                        lastDocument = ediDocument;
-                    }
-                }
 
-                session.SaveChanges();
+                        }
+                        else
+                        {
+                            Debug.Assert(lastDocument.ValidFrom.HasValue, "lastDocument.ValidFrom.HasValue");
+                            ediDocument.ValidTo = lastDocument.ValidFrom.Value.Date.Subtract(TimeSpan.FromDays(1));
+                        }
+                    }
+                    lastDocument = ediDocument;
+                }
             }
+
+            session.SaveChanges();
         }
 
         private void UpdateIsLatestVersionOnDocuments()
@@ -349,8 +338,8 @@ namespace EdiEnergyExtractorCore
                 foreach (var generalDocumentGroup in generalDocumentGroups)
                 {
                     var past = generalDocumentGroup.Where(d => d.ValidTo.HasValue && d.ValidTo < DateTime.Now).OrderByDescending(d => d.DocumentDate).FirstOrDefault();
-                    var current = generalDocumentGroup.Where(d => d.ValidFrom<DateTime.Now && (!d.ValidTo.HasValue || d.ValidTo > DateTime.Now)).OrderByDescending(d => d.DocumentDate).FirstOrDefault();
-                    var future = generalDocumentGroup.Where(d =>  (!d.ValidTo.HasValue || d.ValidTo > DateTime.Now)).OrderByDescending(d => d.DocumentDate).FirstOrDefault();
+                    var current = generalDocumentGroup.Where(d => d.ValidFrom < DateTime.Now && (!d.ValidTo.HasValue || d.ValidTo > DateTime.Now)).OrderByDescending(d => d.DocumentDate).FirstOrDefault();
+                    var future = generalDocumentGroup.Where(d => (!d.ValidTo.HasValue || d.ValidTo > DateTime.Now)).OrderByDescending(d => d.DocumentDate).FirstOrDefault();
 
                     if (past != null) past.IsLatestVersion = true;
                     if (current != null) current.IsLatestVersion = true;
@@ -398,7 +387,7 @@ namespace EdiEnergyExtractorCore
             if (documentRequiresTextAnlyzing)
             {
                 _log.Trace($"Analyzing pdf text content for {ediDocument.Filename} ({pdfStream.Length} bytes)");
-                using (var reader = new PdfReader(((MemoryStream) pdfStream).ToArray()))
+                using (var reader = new PdfReader(((MemoryStream)pdfStream).ToArray()))
                 {
                     ediDocument.BuildCheckIdentifierList(Enumerable.Range(1, reader.NumberOfPages)
                         .Select(pageNumber => PdfTextExtractor.GetTextFromPage(reader, pageNumber)));

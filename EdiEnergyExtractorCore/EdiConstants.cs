@@ -24,6 +24,8 @@ namespace EdiEnergyExtractorCore
             {"Geschäftsdatenanfrage", new List<string> {"Geschäftsdatenanfrage", "Gesch&auml;ftsdatenanfrage"}},
             {"HKNR", new List<string> {"HKNR", "Herkunftsnachweisregister"}},
             {"Stammdatenänderung", new List<string> {"Stammdatenänderung"}},
+            {"Zählzeitdefinitionen", new List<string> {"Zählzeitdefinitionen"}},
+            {"Berechnungsformel", new List<string> {"Berechnungsformel"}},
         };
     }
 }
