@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net;
 using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 using System.Threading.Tasks;
 using CommandLine;
 using CommandLine.Attributes;
@@ -33,6 +34,7 @@ namespace EdiEnergyExtractorCore
         
         static async Task Main(string[] args)
         {
+            Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
 #if !DEBUG
             try
             {
