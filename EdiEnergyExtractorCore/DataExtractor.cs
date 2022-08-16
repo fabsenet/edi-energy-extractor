@@ -117,7 +117,6 @@ namespace EdiEnergyExtractorCore
 
 
                     matchedDocs = onlineDocs
-.Where(o=>o.DocumentNameRaw.Contains("INVOIC"))
                         .Select(tr => new OnlineAndExistingMatchedDocument
                         {
                             Online = tr,
