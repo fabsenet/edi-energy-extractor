@@ -135,10 +135,14 @@ namespace EdiEnergyExtractorCore
                     session?.SaveChanges();
                 }
 
-                foreach(var doc in matchedDocs.Where(d => d.Existing == null))
+                var newDocumentNames = new List<string>();
+                foreach(var doc in matchedDocs.Where(d => d.Existing == null).OrderByDescending(d=>d.Online.ValidFrom))
                 {
                     var newEdiDocument = new EdiDocument(doc.Online.DocumentNameRaw, doc.Online.DocumentUri, doc.Online.ValidFrom, doc.Online.ValidTo);
+                    _log.Warn($"Working on new document {newEdiDocument.DocumentName} {newEdiDocument.MessageTypeVersion}");//date is guessed from filename and only available after download of the actual file!
+
                     var pdfStream = await CreateMirrorAndAnalyzePdfContent(newEdiDocument);
+                    newDocumentNames.Add($"{newEdiDocument.DocumentName} {newEdiDocument.MessageTypeVersion}, {newEdiDocument.DocumentDate?.ToString("d") ?? "no date"}");
 
                     if (Store != null)
                     {
@@ -149,8 +153,9 @@ namespace EdiEnergyExtractorCore
                         _log.Info($"saving session changes after {newEdiDocumentCount} new documents.");
                         session.SaveChanges();
                     }
-
                 };
+
+                if(newDocumentNames.Any()) _log.Warn($"New documents:\n{string.Join("\n", newDocumentNames)}");
             }
 
             if (Store == null)
@@ -398,12 +403,12 @@ namespace EdiEnergyExtractorCore
 
         private async Task<Stream> DownloadAndCreateMirror(EdiDocument ediDocument)
         {
-            _log.Debug("Downloading copy of ressource {DocumentUri}", ediDocument.DocumentUri);
+            _log.Trace("Downloading copy of ressource {DocumentUri}", ediDocument.DocumentUri);
             var (stream, filename) = await _httpClient.GetAsync(ediDocument.DocumentUri);
 
             ediDocument.Filename = filename;
 
-            _log.Debug("Stored copy of ressource {DocumentUri}", ediDocument.DocumentUri);
+            _log.Trace("Stored copy of ressource {DocumentUri}", ediDocument.DocumentUri);
 
             return stream;
         }
