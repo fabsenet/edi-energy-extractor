@@ -194,6 +194,18 @@ namespace EdiEnergyExtractorCore
                     //date in filename is missing a 1 !
                     return new DateTime(2021, 10, 1);
                 }
+                else if (filename == "AS4-Profil_final")
+                {
+                    return new DateTime(2022, 9, 1);
+                }
+                else if (Regex.IsMatch(filename, @"^Regelungen_zum_.{1,2}bertragungsweg_AS4_final$")) //schei? encoding
+                {
+                    return new DateTime(2022, 9, 1);
+                }
+                else if (Regex.IsMatch(filename, @"^EDI_Energy_AWH_Einf.{1,2}hrungsszenario_AS4_final$")) //schei? encoding
+                {
+                    return new DateTime(2022, 9, 1);
+                }
                 //could be like "Ã?nderungshistorie XML-Datenformate_20211206_Onlineversion"
                 else if (Regex.IsMatch(filename, @"_20\d{6}_"))
                 {
