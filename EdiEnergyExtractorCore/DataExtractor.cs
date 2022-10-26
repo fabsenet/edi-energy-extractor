@@ -313,6 +313,8 @@ namespace EdiEnergyExtractorCore
                                             doc.MessageTypeVersion,
                                             doc.IsAhb,
                                             doc.IsMig,
+                                            doc.IsGas,
+                                            doc.IsStrom,
                                             doc.IsGeneralDocument,
                                             ContainedMessageTypesString =
                                                 doc.ContainedMessageTypes != null && doc.ContainedMessageTypes.Any()

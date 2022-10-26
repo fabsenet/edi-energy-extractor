@@ -14,11 +14,12 @@ namespace EdiEnergyExtractorCore
     public class EdiDocument
     {
         private static readonly ILogger _log = LogManager.GetCurrentClassLogger();
+        private static readonly CultureInfo _germanCulture = new CultureInfo("de-DE");
 
 
         public EdiDocument()
         {
-            
+
         }
 
         public EdiDocument(string documentNameRaw, string documentUri, DateTime? validFrom, DateTime? validTo) : this()
@@ -27,12 +28,12 @@ namespace EdiEnergyExtractorCore
             DocumentUri = documentUri;
             ValidFrom = validFrom;
             ValidTo = validTo;
-            
+
             var containedMessageTypes = EdiConstants.MessageTypes.Where(mt => DocumentNameRaw.Contains(mt)).ToArray();
             if (!containedMessageTypes.Any() && DocumentNameRaw.Contains("Herkunftsnachweisregister"))
             {
                 //hknr files do not have the message types in the file name
-                containedMessageTypes = new[] {"ORDERS", "ORDRSP", "UTILMD", "MSCONS"};
+                containedMessageTypes = new[] { "ORDERS", "ORDRSP", "UTILMD", "MSCONS" };
             }
             ContainedMessageTypes = containedMessageTypes.Any() ? containedMessageTypes : null;
 
@@ -67,18 +68,40 @@ namespace EdiEnergyExtractorCore
         }
 
 
-        public string DocumentUri { get; set; }
+        public string Id { get; set; }
+        public bool IsMig { get; set; }
+        public bool IsAhb { get; set; }
+        public bool IsGeneralDocument { get; set; }
+
+        public bool IsGas => DocumentNameRaw?.Contains("gas", StringComparison.OrdinalIgnoreCase) == true;
+        public bool IsStrom => DocumentNameRaw?.Contains("strom", StringComparison.OrdinalIgnoreCase) == true || DocumentNameRaw?.Contains("gpke", StringComparison.OrdinalIgnoreCase) == true;
+
+        public bool IsStromUndOderGas => !IsGas && !IsStrom;
+
+        public bool IsLatestVersion { get; set; }
+
+        public DateTime? DocumentDate { get; set; }
         public DateTime? ValidFrom { get; set; }
-        public DateTime? ValidTo { get; set; }   
+        public DateTime? ValidTo { get; set; }
         public string DocumentName { get; set; }
-        public string Id { get;  set; }
-        public bool IsMig { get;  set; }
-        public bool IsAhb { get;  set; }
-        public string[] ContainedMessageTypes { get;  set; }
+        public string DocumentNameRaw { get; set; }
+        public string DocumentUri { get; set; }
+        public string[] ContainedMessageTypes { get; set; }
+        public string MessageTypeVersion { get; set; }
+        public string BdewProcess { get; set; }
+        public IDictionary<int, List<int>> CheckIdentifier { get; set; }
 
-        public bool IsGeneralDocument { get;  set; }
+        private string _filename;
+        public string Filename
+        {
+            get => _filename;
+            set
+            {
+                _filename = value;
+                DocumentDate = GuessDocumentDateFromDocumentNameRawOrFilename();
+            }
+        }
 
-        public string MessageTypeVersion { get;  set; }
 
         private string GetMessageTypeVersion()
         {
@@ -87,7 +110,7 @@ namespace EdiEnergyExtractorCore
             var regex = new Regex(@"(\d\.\d[a-z]{0,1})");
 
             var isUtiltsErrorUpstream = DocumentNameRaw == "UTILTS MIG\n 1.1e" && ValidFrom == new DateTime(2022, 10, 1);
-            if(isUtiltsErrorUpstream) return "1.1a";
+            if (isUtiltsErrorUpstream) return "1.1a";
 
             var match = regex.Match(DocumentNameRaw);
             if (!match.Success)
@@ -97,10 +120,6 @@ namespace EdiEnergyExtractorCore
 
             return match.Groups[1].Value;
         }
-
-        private static readonly CultureInfo _germanCulture = new CultureInfo("de-DE");
-
-        public DateTime? DocumentDate { get;  set; }
 
         private DateTime? GuessDocumentDateFromDocumentNameRawOrFilename()
         {
@@ -206,6 +225,10 @@ namespace EdiEnergyExtractorCore
                 {
                     return new DateTime(2022, 9, 1);
                 }
+                else if (Regex.IsMatch(filename, @"^AWH_Einf.{1,2}hrungsszenario_BK6-20-160_Version_1\.8$")) //schei? encoding
+                {
+                    return new DateTime(2022, 9, 29);
+                }
                 //could be like "Ã?nderungshistorie XML-Datenformate_20211206_Onlineversion"
                 else if (Regex.IsMatch(filename, @"_20\d{6}_"))
                 {
@@ -221,26 +244,6 @@ namespace EdiEnergyExtractorCore
                 }
             }
             return date;
-        }
-
-        public string BdewProcess { get; set; }
-
-        public string DocumentNameRaw { get; set; }
-
-        public bool IsLatestVersion { get; set; }
-
-        private string _filename;
-
-        public IDictionary<int, List<int>> CheckIdentifier { get; set; }
-
-        public string Filename
-        {
-            get => _filename;
-            set
-            {
-                _filename = value;
-                DocumentDate = GuessDocumentDateFromDocumentNameRawOrFilename();
-            }
         }
 
         private static readonly Dictionary<string, string> _checkIdentifierPatternPerMessageType = new Dictionary<string, string>()
@@ -277,16 +280,16 @@ namespace EdiEnergyExtractorCore
                 CheckIdentifier = null;
                 return;
             }
-            
+
             _log.Trace("Building stronger pattern based on ContainedMessageTypes: {ContainedMessageTypes}", ContainedMessageTypes);
             //    (?:11\d{3})
 
-            var pattern = "(" + 
+            var pattern = "(" +
                 ContainedMessageTypes
                 .Where(msg => _checkIdentifierPatternPerMessageType.ContainsKey(msg))
                 .Select(msg => _checkIdentifierPatternPerMessageType[msg])
                 .Select(part => @"(?:" + part + @"\d{3})")
-                .Aggregate((p1, p2) => p1 + "|" + p2) 
+                .Aggregate((p1, p2) => p1 + "|" + p2)
                 + ")";
 
             _log.Debug("refined checkidentifier regex pattern to {pattern} based on contained messagetypes {ContainedMessageTypes}", pattern, ContainedMessageTypes);
@@ -300,7 +303,7 @@ namespace EdiEnergyExtractorCore
                 var ids = Regex.Matches(text, pattern)
                     .Select(match => match.Value)
                     .Where(id => ContainedMessageTypes == null || ContainedMessageTypes
-                        .Select(msgType => _checkIdentifierPatternPerMessageType.ContainsKey(msgType)? _checkIdentifierPatternPerMessageType[msgType]: null)
+                        .Select(msgType => _checkIdentifierPatternPerMessageType.ContainsKey(msgType) ? _checkIdentifierPatternPerMessageType[msgType] : null)
                         .Where(prefix => prefix != null)
                         .Any(prefix => id.StartsWith(prefix))
                     )
