@@ -102,28 +102,31 @@ namespace EdiEnergyExtractorCore
 
         private static void SaveMigFiles(IDocumentStore store)
         {
-            using(var session = store.OpenSession())
+            using var session = store.OpenSession();
+
+            var docsToSave = session.Query<EdiDocument>()
+                .Where(d => d.IsLatestVersion)
+                .Where(d => d.IsMig)
+                .ToList();
+
+            foreach (var doc in docsToSave)
             {
-                var dateBoundary = DateTime.Now.AddMonths(4);
-                var docsToSave = session.Query<EdiDocument>()
-                    .Where(d => d.IsLatestVersion)
-                    .Where(d => d.IsMig)
-                    .Where(d => d.ValidTo == null || d.ValidTo > dateBoundary)
-                    .ToList();
+                string raw = doc.DocumentNameRaw.Replace("\n", " ");
+                var filename = $"{string.Join("_", (doc.ContainedMessageTypes ?? new string[] { "unknown" }).OrderBy(m => m))}_MIG_{doc.MessageTypeVersion}_{doc.DocumentDate.Value.ToString("yyyy-MM-dd")}{Path.GetExtension(doc.Filename)}";
 
-                foreach (var doc in docsToSave)
-                {
-                    string raw = doc.DocumentNameRaw.Replace("\n", " ");
-                    var fn = $"{string.Join("_", (doc.ContainedMessageTypes??new string[] { "unknown"}).OrderBy(m => m))}_MIG_{doc.MessageTypeVersion}_{doc.DocumentDate.Value.ToString("yyyy-MM-dd")}{Path.GetExtension(doc.Filename)}";
+                var foldername = $"{doc.DocumentDate?.ToString("yyyy-MM-dd") ?? "unknown"} MIG";
+                Directory.CreateDirectory(foldername);
 
-                    Console.WriteLine(fn);
-                    Console.WriteLine(raw);
+                Console.WriteLine(filename);
+                Console.WriteLine(raw);
 
-                    using var file = File.OpenWrite(fn);
+                var fullPath = Path.Combine(foldername, filename);
 
-                    session.Advanced.Attachments.Get(doc, "pdf").Stream.CopyTo(file);
-                    file.Close();
-                }
+                if (File.Exists(fullPath)) continue;
+
+                using var file = File.OpenWrite(fullPath);
+                session.Advanced.Attachments.Get(doc, "pdf").Stream.CopyTo(file);
+                file.Close();
             }
         }
 
