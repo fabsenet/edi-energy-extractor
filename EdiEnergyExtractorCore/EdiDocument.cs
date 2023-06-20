@@ -246,9 +246,13 @@ namespace EdiEnergyExtractorCore
             return date;
         }
 
+
+        /// <summary>
+        /// becomes the X in @"(?:X\d{3})" based on the detected messagetype
+        /// </summary>
         private static readonly Dictionary<string, string> _checkIdentifierPatternPerMessageType = new Dictionary<string, string>()
         {
-            {"UTILMD", "11"},
+            {"UTILMD", "(?:11|44|55)"},
             {"MSCONS", "13"},
             {"QUOTES", "15"},
             {"ORDERS", "17"},

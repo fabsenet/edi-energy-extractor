@@ -1,9 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.28307.489
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.33627.172
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "EdiEnergyExtractorCore", "EdiEnergyExtractorCore\EdiEnergyExtractorCore.csproj", "{E1BE1CF2-5221-478F-85C3-4D1F2C350E76}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "EdiEnergyExtractor", "EdiEnergyExtractorCore\EdiEnergyExtractor.csproj", "{E1BE1CF2-5221-478F-85C3-4D1F2C350E76}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
