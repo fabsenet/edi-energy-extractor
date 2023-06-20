@@ -306,11 +306,6 @@ namespace EdiEnergyExtractorCore
 
                 var ids = Regex.Matches(text, pattern)
                     .Select(match => match.Value)
-                    .Where(id => ContainedMessageTypes == null || ContainedMessageTypes
-                        .Select(msgType => _checkIdentifierPatternPerMessageType.ContainsKey(msgType) ? _checkIdentifierPatternPerMessageType[msgType] : null)
-                        .Where(prefix => prefix != null)
-                        .Any(prefix => id.StartsWith(prefix))
-                    )
                     .Select(id => Convert.ToInt32(id))
                     .Distinct()
                     .OrderBy(id => id)
