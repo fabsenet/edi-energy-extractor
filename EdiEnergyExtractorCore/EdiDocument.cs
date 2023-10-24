@@ -11,7 +11,7 @@ namespace EdiEnergyExtractorCore
 {
 
     [DebuggerDisplay("EdiDocument {ValidFrom}-{ValidTo} {DocumentNameRaw} ({Id})")]
-    public class EdiDocument
+    public partial class EdiDocument
     {
         private static readonly ILogger _log = LogManager.GetCurrentClassLogger();
         private static readonly CultureInfo _germanCulture = new CultureInfo("de-DE");
@@ -103,11 +103,14 @@ namespace EdiEnergyExtractorCore
         }
 
 
+        [GeneratedRegex("([sSgG]?\\d\\.\\d[a-z]?)")]
+        private static partial Regex MessageTypeVersionRegex();
+        
         private string GetMessageTypeVersion()
         {
             if (IsGeneralDocument) return null;
 
-            var regex = new Regex(@"(\d\.\d[a-z]{0,1})");
+            var regex = MessageTypeVersionRegex();
 
             var isUtiltsErrorUpstream = DocumentNameRaw == "UTILTS MIG\n 1.1e" && ValidFrom == new DateTime(2022, 10, 1);
             if (isUtiltsErrorUpstream) return "1.1a";
@@ -221,6 +224,10 @@ namespace EdiEnergyExtractorCore
                 {
                     return new DateTime(2022, 9, 1);
                 }
+                else if (Regex.IsMatch(filename, @"^Regelungen_zum_.{1,2}bertragungsweg_AS4_2_1$")) //schei? encoding
+                {
+                    return new DateTime(2023, 10, 4);
+                }
                 else if (Regex.IsMatch(filename, @"^EDI_Energy_AWH_Einf.{1,2}hrungsszenario_AS4_final$")) //schei? encoding
                 {
                     return new DateTime(2022, 9, 1);
@@ -333,5 +340,6 @@ namespace EdiEnergyExtractorCore
                 _log.Debug("Extracted no checkIdentifiers");
             }
         }
+
     }
 }
