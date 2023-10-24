@@ -164,9 +164,28 @@ namespace EdiEnergyExtractorCore
                 return;
             }
 
+            FixMessageVersions();
             UpdateValidToValuesOnGeneralDocuments();
             UpdateValidToValuesOnEdiDocuments();
             UpdateIsLatestVersionOnDocuments();
+        }
+
+        private void FixMessageVersions()
+        {
+            using var session = Store.OpenSession();
+
+            //refetch
+            var ediDocuments = session.Query<EdiDocument>()
+                .Where(e => !e.IsGeneralDocument)
+                .Where(e => e.DocumentDate.HasValue && e.DocumentDate.Value.Year >= 2022) //do not mess with old docs
+                .ToList();
+
+            foreach(var doc in ediDocuments)
+            {
+                doc.MessageTypeVersion = doc.GetRawMessageTypeVersion();
+            }
+
+            session.SaveChanges();
         }
 
         private void UpdateValidToValuesOnGeneralDocuments()

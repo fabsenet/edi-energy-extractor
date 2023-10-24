@@ -31,7 +31,7 @@ namespace EdiEnergyExtractorCore
     static class Program
     {
         private static readonly ILogger _log = LogManager.GetCurrentClassLogger();
-        
+
         static async Task Main(string[] args)
         {
             Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
@@ -39,9 +39,9 @@ namespace EdiEnergyExtractorCore
             try
             {
 #endif
-            if (!Parser.TryParse(args, out Options options)) return; 
+                if (!Parser.TryParse(args, out Options options)) return;
 
-            _log.Debug("EdiEnergyExtractor started.");
+                _log.Debug("EdiEnergyExtractor started.");
                 await InnerMain(options);
 #if !DEBUG
             }
@@ -67,7 +67,7 @@ namespace EdiEnergyExtractorCore
                 .AddEnvironmentVariables("EdiDocuments_")
                 .Build();
 
-            var store = options.DryRun? null : GetDocumentStore(config);
+            var store = options.DryRun ? null : GetDocumentStore(config);
 
             //ReadExistingDataForAnalysis(store);
 
@@ -132,7 +132,7 @@ namespace EdiEnergyExtractorCore
 
         private static void ReadExistingDataForAnalysis(IDocumentStore store)
         {
-            using(var session = store.OpenSession())
+            using (var session = store.OpenSession())
             {
                 //select future AHBs
                 var docs = session.Query<EdiDocument>()
@@ -145,7 +145,7 @@ namespace EdiEnergyExtractorCore
                     .Where(d => d.CheckIdentifier?.Any() == true)
                     .SelectMany(d => d.CheckIdentifier.Keys)
                     .Distinct()
-                    .OrderBy(p=>p)
+                    .OrderBy(p => p)
                     .ToList();
 
                 foreach (var pi in existingPIs)

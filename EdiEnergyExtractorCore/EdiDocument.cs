@@ -64,7 +64,7 @@ namespace EdiEnergyExtractorCore
 
             IsGeneralDocument = !IsMig && !IsAhb;
 
-            MessageTypeVersion = GetMessageTypeVersion();
+            MessageTypeVersion = GetRawMessageTypeVersion();
         }
 
 
@@ -73,8 +73,8 @@ namespace EdiEnergyExtractorCore
         public bool IsAhb { get; set; }
         public bool IsGeneralDocument { get; set; }
 
-        public bool IsGas => DocumentNameRaw?.Contains("gas", StringComparison.OrdinalIgnoreCase) == true;
-        public bool IsStrom => DocumentNameRaw?.Contains("strom", StringComparison.OrdinalIgnoreCase) == true || DocumentNameRaw?.Contains("gpke", StringComparison.OrdinalIgnoreCase) == true;
+        public bool IsGas => MessageTypeVersion?.StartsWith("G", StringComparison.OrdinalIgnoreCase) == true || DocumentNameRaw?.Contains("gas", StringComparison.OrdinalIgnoreCase) == true;
+        public bool IsStrom => MessageTypeVersion?.StartsWith("S", StringComparison.OrdinalIgnoreCase) == true || DocumentNameRaw?.Contains("strom", StringComparison.OrdinalIgnoreCase) == true || DocumentNameRaw?.Contains("gpke", StringComparison.OrdinalIgnoreCase) == true;
 
         public bool IsStromUndOderGas => !IsGas && !IsStrom;
 
@@ -105,10 +105,11 @@ namespace EdiEnergyExtractorCore
 
         [GeneratedRegex("([sSgG]?\\d\\.\\d[a-z]?)")]
         private static partial Regex MessageTypeVersionRegex();
-        
-        private string GetMessageTypeVersion()
+
+        public string GetRawMessageTypeVersion()
         {
             if (IsGeneralDocument) return null;
+            if (DocumentNameRaw == null) return null;
 
             var regex = MessageTypeVersionRegex();
 
