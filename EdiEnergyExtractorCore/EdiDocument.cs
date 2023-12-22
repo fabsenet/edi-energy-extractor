@@ -233,9 +233,17 @@ namespace EdiEnergyExtractorCore
                 {
                     return new DateTime(2022, 9, 1);
                 }
+                else if (Regex.IsMatch(filename, @"^Regelungen_zum_.{1,2}bertragungsweg_1\.7$")) //schei? encoding
+                {
+                    return new DateTime(2023, 12, 13);
+                }
                 else if (Regex.IsMatch(filename, @"^AWH_Einf.{1,2}hrungsszenario_BK6-20-160_Version_1\.8$")) //schei? encoding
                 {
                     return new DateTime(2022, 9, 29);
+                }
+                else if (Regex.IsMatch(filename, @"^AWH_Einf.{1,2}hrungsszenario_Redispatch 2\.0_Unavailability_MarketDocument _V1\.0$")) //schei? encoding
+                {
+                    return new DateTime(2023, 12, 11);
                 }
                 //could be like "Ã?nderungshistorie XML-Datenformate_20211206_Onlineversion"
                 else if (Regex.IsMatch(filename, @"_20\d{6}_"))
