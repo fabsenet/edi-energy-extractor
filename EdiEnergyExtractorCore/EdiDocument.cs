@@ -245,6 +245,10 @@ namespace EdiEnergyExtractorCore
                 {
                     return new DateTime(2023, 12, 11);
                 }
+                else if (Regex.IsMatch(filename, @"^AWH_Einf.{1,2}hrungsszenario_Redispatch 2\.0_Unavailability_MarketDocument _V1\.1$")) //schei? encoding
+                {
+                    return new DateTime(2024, 1, 25);
+                }
                 //could be like "Ã?nderungshistorie XML-Datenformate_20211206_Onlineversion"
                 else if (Regex.IsMatch(filename, @"_20\d{6}_"))
                 {
@@ -256,7 +260,7 @@ namespace EdiEnergyExtractorCore
                 }
                 else
                 {
-                    throw new NotImplementedException($"cannot guess date for document. (DocumentNameRaw='{DocumentNameRaw}', filename='{filename}')");
+                    throw new NotImplementedException($"cannot guess date for document. (DocumentNameRaw='{DocumentNameRaw}', filename='{filename}'). source = {DocumentUri}");
                 }
             }
             return date;
