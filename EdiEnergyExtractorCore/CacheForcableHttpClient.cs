@@ -17,7 +17,7 @@ namespace EdiEnergyExtractorCore
 
         private bool PreferCache { get; }
 
-        public CacheForcableHttpClient(bool preferCache=false)
+        public CacheForcableHttpClient(bool preferCache = false)
         {
             PreferCache = preferCache;
             Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory, "cache"));
@@ -25,7 +25,7 @@ namespace EdiEnergyExtractorCore
 
         public async Task<(Stream content, string filename)> GetAsync(string uri)
         {
-            var tempFileBaseName = Path.Combine( AppContext.BaseDirectory, "cache", $"edidocs_{BitConverter.ToString(MD5.Create().ComputeHash(Encoding.UTF8.GetBytes(uri)))}");
+            var tempFileBaseName = Path.Combine(AppContext.BaseDirectory, "cache", $"edidocs_{BitConverter.ToString(MD5.Create().ComputeHash(Encoding.UTF8.GetBytes(uri)))}");
             var tempResponseFileName = tempFileBaseName + ".cachedata";
             var tempFilenameFileName = tempFileBaseName + ".cachename";
 

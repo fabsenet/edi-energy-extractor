@@ -39,10 +39,10 @@ namespace EdiEnergyExtractorCore
             try
             {
 #endif
-                if (!Parser.TryParse(args, out Options options)) return;
+            if (!Parser.TryParse(args, out Options options)) return;
 
-                _log.Debug("EdiEnergyExtractor started.");
-                await InnerMain(options);
+            _log.Debug("EdiEnergyExtractor started.");
+            await InnerMain(options);
 #if !DEBUG
             }
             catch (Exception ex)

@@ -112,7 +112,7 @@ namespace EdiEnergyExtractorCore
                             DocumentUri = BuildDocumentUri(tr)
                         })
                         .Where(tr => !tr.DocumentNameRaw.Contains("EDIFACT Utilities"))
-                        .Where(d=>!d.DocumentNameRaw.Contains("informatorische Lesefassung", StringComparison.OrdinalIgnoreCase))
+                        .Where(d => !d.DocumentNameRaw.Contains("informatorische Lesefassung", StringComparison.OrdinalIgnoreCase))
                         .ToList();
 
 
@@ -136,7 +136,7 @@ namespace EdiEnergyExtractorCore
                 }
 
                 var newDocumentNames = new List<string>();
-                foreach(var doc in matchedDocs.Where(d => d.Existing == null).OrderByDescending(d=>d.Online.ValidFrom))
+                foreach (var doc in matchedDocs.Where(d => d.Existing == null).OrderByDescending(d => d.Online.ValidFrom))
                 {
                     var newEdiDocument = new EdiDocument(doc.Online.DocumentNameRaw, doc.Online.DocumentUri, doc.Online.ValidFrom, doc.Online.ValidTo);
                     _log.Warn($"Working on new document {newEdiDocument.DocumentName} {newEdiDocument.MessageTypeVersion}");//date is guessed from filename and only available after download of the actual file!
@@ -155,7 +155,7 @@ namespace EdiEnergyExtractorCore
                     }
                 };
 
-                if(newDocumentNames.Any()) _log.Warn($"New documents:\n{string.Join("\n", newDocumentNames)}");
+                if (newDocumentNames.Any()) _log.Warn($"New documents:\n{string.Join("\n", newDocumentNames)}");
             }
 
             if (Store == null)
@@ -180,7 +180,7 @@ namespace EdiEnergyExtractorCore
                 .Where(e => e.DocumentDate.HasValue && e.DocumentDate.Value.Year >= 2022) //do not mess with old docs
                 .ToList();
 
-            foreach(var doc in ediDocuments)
+            foreach (var doc in ediDocuments)
             {
                 doc.MessageTypeVersion = doc.GetRawMessageTypeVersion();
             }
@@ -191,7 +191,7 @@ namespace EdiEnergyExtractorCore
         private void UpdateValidToValuesOnGeneralDocuments()
         {
             using var session = Store.OpenSession();
-            
+
             //refetch
             var ediDocuments = session.Query<EdiDocument>()
                 .Where(e => e.IsGeneralDocument)
@@ -242,7 +242,7 @@ namespace EdiEnergyExtractorCore
         private void UpdateValidToValuesOnEdiDocuments()
         {
             using var session = Store.OpenSession();
-            
+
             //refetch
             var ediDocuments = session.Query<EdiDocument>()
                 .Where(e => e.IsAhb || e.IsMig)
