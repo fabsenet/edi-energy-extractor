@@ -1,14 +1,13 @@
 ﻿using System.Linq;
 using Raven.Client.Documents.Indexes;
 
-namespace EdiEnergyExtractorCore
+namespace EdiEnergyExtractorCore;
+
+class EdiDocuments_DocumentUri : AbstractIndexCreationTask<EdiDocument>
 {
-    class EdiDocuments_DocumentUri : AbstractIndexCreationTask<EdiDocument>
+    public EdiDocuments_DocumentUri()
     {
-        public EdiDocuments_DocumentUri()
-        {
-            Map = ediDocs => from ediDoc in ediDocs
-                             select new { ediDoc.DocumentUri };
-        }
+        Map = ediDocs => from ediDoc in ediDocs
+                         select new { ediDoc.DocumentUri };
     }
 }
