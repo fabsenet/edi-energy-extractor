@@ -27,22 +27,22 @@ public partial class EdiDocument
         ValidFrom = validFrom;
         ValidTo = validTo;
 
-        var containedMessageTypes = EdiConstants.MessageTypes.Where(mt => DocumentNameRaw.Contains(mt)).ToArray();
-        if (!containedMessageTypes.Any() && DocumentNameRaw.Contains("Herkunftsnachweisregister"))
+        var containedMessageTypes = EdiConstants.MessageTypes.Where(mt => DocumentNameRaw.Contains(mt, StringComparison.Ordinal)).ToArray();
+        if (containedMessageTypes.Length == 0 && DocumentNameRaw.Contains("Herkunftsnachweisregister", StringComparison.Ordinal))
         {
             //hknr files do not have the message types in the file name
-            containedMessageTypes = new[] { "ORDERS", "ORDRSP", "UTILMD", "MSCONS" };
+            containedMessageTypes = ["ORDERS", "ORDRSP", "UTILMD", "MSCONS"];
         }
-        ContainedMessageTypes = containedMessageTypes.Any() ? containedMessageTypes : null;
+        ContainedMessageTypes = containedMessageTypes.Length != 0 ? containedMessageTypes : null;
 
         string saveFilename = Uri.UnescapeDataString(Path.GetFileNameWithoutExtension(DocumentUri.AbsoluteUri))
-            .Replace(" ", "_")
+            .Replace(" ", "_", StringComparison.Ordinal)
             ;
 
         //Id = $"EdiDocuments/{saveFilename}";
 
         DocumentName = DocumentNameRaw.Split('\n', '\r').First();
-        IsMig = DocumentNameRaw.Contains("MIG");
+        IsMig = DocumentNameRaw.Contains("MIG", StringComparison.Ordinal);
 
         if (IsMig)
         {
@@ -52,12 +52,12 @@ public partial class EdiDocument
         {
             BdewProcess = EdiConstants
                 .EdiProcesses
-                .Where(p => p.Value.Any(v => DocumentNameRaw.Contains(v)))
+                .Where(p => p.Value.Any(v => DocumentNameRaw.Contains(v, StringComparison.Ordinal)))
                 .Select(p => p.Key)
                 .SingleOrDefault();
         }
 
-        IsAhb = DocumentNameRaw.Contains("AHB") || BdewProcess != null;
+        IsAhb = DocumentNameRaw.Contains("AHB", StringComparison.Ordinal) || BdewProcess != null;
 
         IsGeneralDocument = !IsMig && !IsAhb;
 
@@ -82,9 +82,9 @@ public partial class EdiDocument
     public string DocumentName { get; set; }
     public string DocumentNameRaw { get; set; }
     public Uri DocumentUri { get; set; }
-    public IReadOnlyCollection<string> ContainedMessageTypes { get; set; }
-    public string MessageTypeVersion { get; set; }
-    public string BdewProcess { get; set; }
+    public IReadOnlyCollection<string>? ContainedMessageTypes { get; set; }
+    public string? MessageTypeVersion { get; set; }
+    public string? BdewProcess { get; set; }
     public Dictionary<int, List<int>> CheckIdentifier { get; } = [];
 
     private string _filename;
@@ -101,7 +101,7 @@ public partial class EdiDocument
     [GeneratedRegex("([sSgG]?\\d\\.\\d[a-z]?)")]
     private static partial Regex MessageTypeVersionRegex();
 
-    public string GetRawMessageTypeVersion()
+    public string? GetRawMessageTypeVersion()
     {
         if (IsGeneralDocument) return null;
         if (DocumentNameRaw == null) return null;
@@ -123,10 +123,10 @@ public partial class EdiDocument
     private DateTime? GuessDocumentDateFromDocumentNameRawOrFilename()
     {
         DateTime date;
-        if (DocumentNameRaw.Contains("Stand:"))
+        if (DocumentNameRaw.Contains("Stand:", StringComparison.Ordinal))
         {
             //"UTILMD AHB GPKE GeLi Gas 6.0a\r\n Konsolidierte Lesefassung mit Fehlerkorrekturen\r\n Stand: 29. August 2014"
-            var dateString = DocumentNameRaw.Split(new[] { "Stand:" }, StringSplitOptions.None)[1].Trim();
+            var dateString = DocumentNameRaw.Split("Stand:", StringSplitOptions.None)[1].Trim();
 
             date = DateTime.Parse(dateString, _germanCulture);
         }
@@ -134,9 +134,9 @@ public partial class EdiDocument
         {
             //alternatively try parsing the date from the file name
             var filename = Path.GetFileNameWithoutExtension(Filename)
-            .Replace("_202112120_", "_20211220_"); //fix typo in filename='Ã?nderungshistorie XML-Datenformate_202112120_Onlineversion'
+            .Replace("_202112120_", "_20211220_", StringComparison.Ordinal); //fix typo in filename='Ã?nderungshistorie XML-Datenformate_202112120_Onlineversion'
 
-            if (filename.EndsWith("_end"))
+            if (filename.EndsWith("_end", StringComparison.Ordinal))
             {
                 filename = filename.Substring(0, filename.Length - "_end".Length);
             }
@@ -152,9 +152,9 @@ public partial class EdiDocument
             else if (Regex.IsMatch(filename, @"_\d{4}(?:_|\.)\d{2}(?:_|\.)\d{2}_"))
             {
                 var match = Regex.Match(filename, @"_(?<year>\d{4})(?:_|\.)(?<month>\d{2})(?:_|\.)(?<day>\d{2})_", RegexOptions.ExplicitCapture);
-                var year = int.Parse(match.Groups["year"].Value);
-                var month = int.Parse(match.Groups["month"].Value);
-                var day = int.Parse(match.Groups["day"].Value);
+                var year = int.Parse(match.Groups["year"].Value, _germanCulture);
+                var month = int.Parse(match.Groups["month"].Value, _germanCulture);
+                var day = int.Parse(match.Groups["day"].Value, _germanCulture);
                 date = new DateTime(year, month, day);
             }
 
@@ -171,9 +171,9 @@ public partial class EdiDocument
             else if (Regex.IsMatch(filename, @"_202[1-3][0-1]\d[0-3]\d_[^_]*$"))
             {
                 var match = Regex.Match(filename, @"_(?<year>\d{4})(?<month>\d{2})(?<day>\d{2})_", RegexOptions.ExplicitCapture);
-                var year = int.Parse(match.Groups["year"].Value);
-                var month = int.Parse(match.Groups["month"].Value);
-                var day = int.Parse(match.Groups["day"].Value);
+                var year = int.Parse(match.Groups["year"].Value, _germanCulture);
+                var month = int.Parse(match.Groups["month"].Value, _germanCulture);
+                var day = int.Parse(match.Groups["day"].Value, _germanCulture);
                 date = new DateTime(year, month, day);
             }
             else if (ValidFrom.HasValue && ValidFrom.Value.Year < 2017 && !ValidTo.HasValue)
@@ -268,9 +268,9 @@ public partial class EdiDocument
             else if (Regex.IsMatch(filename, @"_20\d{6}_"))
             {
                 var match = Regex.Match(filename, @"_(?<year>\d{4})(?<month>\d{2})(?<day>\d{2})_", RegexOptions.ExplicitCapture);
-                var year = int.Parse(match.Groups["year"].Value);
-                var month = int.Parse(match.Groups["month"].Value);
-                var day = int.Parse(match.Groups["day"].Value);
+                var year = int.Parse(match.Groups["year"].Value, _germanCulture);
+                var month = int.Parse(match.Groups["month"].Value, _germanCulture);
+                var day = int.Parse(match.Groups["day"].Value, _germanCulture);
                 date = new DateTime(year, month, day);
             }
             else
@@ -305,6 +305,8 @@ public partial class EdiDocument
 
     public void BuildCheckIdentifierList(IEnumerable<string> textContentPerPage)
     {
+        ArgumentNullException.ThrowIfNull(textContentPerPage, nameof(textContentPerPage));
+
         _log.Trace("BuildCheckIdentifierList() called.");
 
         if (!IsAhb)

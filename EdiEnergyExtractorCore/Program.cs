@@ -1,9 +1,7 @@
 ﻿using System;
-using System.Configuration;
-using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
@@ -12,8 +10,6 @@ using CommandLine;
 using CommandLine.Attributes;
 using Microsoft.Extensions.Configuration;
 using NLog;
-using NLog.Config;
-using NLog.Fluent;
 using Raven.Client.Documents;
 using Raven.Client.Documents.Indexes;
 
@@ -30,7 +26,7 @@ record Options
 
 static class Program
 {
-    private static readonly ILogger _log = LogManager.GetCurrentClassLogger();
+    private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 
     static async Task Main(string[] args)
     {
@@ -42,7 +38,7 @@ static class Program
         if (!Parser.TryParse(args, out Options options)) return;
 
         _log.Debug("EdiEnergyExtractor started.");
-        await InnerMain(options);
+        await InnerMain(options).ConfigureAwait(false);
 #if !DEBUG
         }
         catch (Exception ex)
@@ -67,19 +63,19 @@ static class Program
             .AddEnvironmentVariables("EdiDocuments_")
             .Build();
 
-        var store = options.DryRun ? null : GetDocumentStore(config);
+        using var store = options.DryRun ? null : GetDocumentStore(config);
 
         //ReadExistingDataForAnalysis(store);
 
         var dataExtractor = new DataExtractor(new CacheForcableHttpClient(options.PreferCache), store);
 
         //request data from web page
-        await dataExtractor.LoadFromWeb();
+        await dataExtractor.LoadFromWeb().ConfigureAwait(false);
 
         _log.Trace("AnalyzeResult started");
-        await dataExtractor.AnalyzeResult();
+        await dataExtractor.AnalyzeResult().ConfigureAwait(false);
 
-        if (options.DryRun)
+        if (options.DryRun || store == null)
         {
             _log.Info("dry run done!");
             return;
@@ -99,7 +95,9 @@ static class Program
         _log.Debug("Done");
     }
 
-    private static void SaveMigFiles(IDocumentStore store)
+    private static readonly CultureInfo _germanCulture = new("de-DE");
+
+    private static void SaveMigFiles(DocumentStore store)
     {
         using var session = store.OpenSession();
 
@@ -110,10 +108,10 @@ static class Program
 
         foreach (var doc in docsToSave)
         {
-            string raw = doc.DocumentNameRaw.Replace("\n", " ");
-            var filename = $"{string.Join("_", (doc.ContainedMessageTypes ?? new string[] { "unknown" }).OrderBy(m => m))}_MIG_{doc.MessageTypeVersion}_{doc.DocumentDate.Value.ToString("yyyy-MM-dd")}{Path.GetExtension(doc.Filename)}";
+            string raw = doc.DocumentNameRaw.Replace("\n", " ", StringComparison.Ordinal);
+            var filename = $"{string.Join("_", (doc.ContainedMessageTypes ?? ["unknown"]).OrderBy(m => m))}_MIG_{doc.MessageTypeVersion}_{(doc.DocumentDate?.ToString("yyyy-MM-dd", _germanCulture) ?? "???")}{Path.GetExtension(doc.Filename)}";
 
-            var foldername = $"{doc.DocumentDate?.ToString("yyyy-MM-dd") ?? "unknown"} MIG";
+            var foldername = $"{doc.DocumentDate?.ToString("yyyy-MM-dd", _germanCulture) ?? "unknown"} MIG";
             Directory.CreateDirectory(foldername);
 
             Console.WriteLine(filename);
@@ -140,7 +138,7 @@ static class Program
             .ToList();
 
         var existingPIs = docs
-            .Where(d => d.CheckIdentifier?.Any() == true)
+            .Where(d => d.CheckIdentifier != null && d.CheckIdentifier.Count != 0)
             .SelectMany(d => d.CheckIdentifier.Keys)
             .Distinct()
             .OrderBy(p => p)
@@ -152,15 +150,15 @@ static class Program
         }
     }
 
-    private static IDocumentStore GetDocumentStore(IConfigurationRoot config)
+    private static DocumentStore GetDocumentStore(IConfigurationRoot config)
     {
         _log.Trace("Initializing RavenDB DocumentStore");
         var store = new DocumentStore()
         {
-            Urls = new[] { config["DatabaseUrl"] },
+            Urls = [config["DatabaseUrl"]],
             Database = config["DatabaseName"]
         };
-        string databaseCertificate = config["DatabaseCertificate"];
+        var databaseCertificate = config["DatabaseCertificate"];
         if (!string.IsNullOrEmpty(databaseCertificate))
         {
             // powershell: [Environment]::SetEnvironmentVariable("EdiDocuments_DatabaseUrl", "https://sazesla11442:10204/", "User")
