@@ -185,4 +185,4 @@ FakesAssemblies/
 
 ConnectionStrings.config
 .vs/
-launchSettings.json
+launchSettings.jsonOutput
