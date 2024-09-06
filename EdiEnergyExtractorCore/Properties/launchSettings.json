@@ -1,0 +1,28 @@
+{
+  "profiles": {
+    "Without arguments": {
+      "commandName": "Project"
+    },
+    "dryrun": {
+      "commandName": "Project",
+      "commandLineArgs": "-dryrun true"
+    },
+    "dryrun+prefercache": {
+      "commandName": "Project",
+      "commandLineArgs": "-prefercache true -dryrun true"
+    },
+    "prefercache": {
+      "commandName": "Project",
+      "commandLineArgs": "-prefercache true"
+    },
+    "local+prefercache": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "EdiDocuments_DatabaseUrl": "http://127.0.0.1:8080",
+        "EdiDocuments_DatabaseName": "EdiDocsDev",
+        "EdiDocuments_DatabaseCertificate": ""
+      },
+      "commandLineArgs": "-prefercache true"
+    }
+  }
+}
