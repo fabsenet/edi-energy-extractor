@@ -2,7 +2,7 @@
 
 namespace EdiEnergyExtractorCore;
 
-public class EdiConstants
+public static class EdiConstants
 {
     public static readonly string[] MessageTypes =
     {
@@ -13,7 +13,7 @@ public class EdiConstants
     /// Key = Name des Prozesses
     /// Value = Liste von Schlüsselwörtern im Dateinamen zur Identifizierung
     /// </summary>
-    public static readonly Dictionary<string, List<string>> EdiProcesses = new Dictionary<string, List<string>>
+    public static readonly Dictionary<string, List<string>> EdiProcesses = new()
     {
         {"GPKE GeLi Gas", new List<string> {"GPKE GeLi Gas"}},
         {"MaBiS", new List<string> {"MaBiS"}},
