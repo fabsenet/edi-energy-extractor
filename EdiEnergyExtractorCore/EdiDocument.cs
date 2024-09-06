@@ -10,7 +10,7 @@ using NLog;
 namespace EdiEnergyExtractorCore;
 
 [DebuggerDisplay("EdiDocument {ValidFrom}-{ValidTo} {DocumentNameRaw} ({Id})")]
-public partial class EdiDocument
+public partial record EdiDocument
 {
     private static readonly Logger _log = LogManager.GetCurrentClassLogger();
     private static readonly CultureInfo _germanCulture = new("de-DE");
@@ -60,6 +60,15 @@ public partial class EdiDocument
         IsAhb = DocumentNameRaw.Contains("AHB", StringComparison.Ordinal) || BdewProcess != null;
 
         IsGeneralDocument = !IsMig && !IsAhb;
+
+        //ahbs and migs always have a contained message type, we need to correct wrong detections
+        if (ContainedMessageTypes == null && !IsGeneralDocument)
+        {
+            IsGeneralDocument = true;
+            IsAhb = false;
+            IsMig = false;
+            BdewProcess = null;
+        }
 
         MessageTypeVersion = GetRawMessageTypeVersion();
     }

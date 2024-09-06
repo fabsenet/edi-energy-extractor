@@ -45,9 +45,9 @@ static class Program
         {
             _log.Fatal(ex, "Unhandled exception, program execution aborted!");
 
-            if (Debugger.IsAttached)
+            if (System.Diagnostics.Debugger.IsAttached)
             {
-                Debugger.Break();
+                System.Diagnostics.Debugger.Break();
             }
         }
 #endif
@@ -66,6 +66,8 @@ static class Program
         using var store = options.DryRun ? null : GetDocumentStore(config);
 
         //ReadExistingDataForAnalysis(store);
+
+        if (store != null) RemoveDuplicatesFromStore(store);
 
         var dataExtractor = new DataExtractor(new CacheForcableHttpClient(options.PreferCache), store);
 
@@ -91,13 +93,33 @@ static class Program
         }
 
         _log.Debug("saving local version of MIG files");
-        SaveMigFiles(store);
+        DownloadMigFilesLocally(store);
         _log.Debug("Done");
+    }
+
+    private static void RemoveDuplicatesFromStore(DocumentStore store)
+    {
+        using var session = store.OpenSession();
+
+        //delete duplicates
+        var duplicates = session.Query<EdiDocument>().ToList()
+            .GroupBy(d => d.DocumentUri)
+            .Where(g => g.Count() > 1)
+            .ToList();
+        foreach (var group in duplicates)
+        {
+            foreach (var doc in group.Skip(1))
+            {
+                session.Delete(doc);
+            }
+        }
+        session.SaveChanges();
+
     }
 
     private static readonly CultureInfo _germanCulture = new("de-DE");
 
-    private static void SaveMigFiles(DocumentStore store)
+    private static void DownloadMigFilesLocally(DocumentStore store)
     {
         using var session = store.OpenSession();
 
@@ -127,9 +149,10 @@ static class Program
         }
     }
 
-    private static void ReadExistingDataForAnalysis(IDocumentStore store)
+    private static void ReadExistingDataForAnalysis(DocumentStore store)
     {
         using var session = store.OpenSession();
+
         //select future AHBs
         var docs = session.Query<EdiDocument>()
             .Where(d => d.IsAhb)
