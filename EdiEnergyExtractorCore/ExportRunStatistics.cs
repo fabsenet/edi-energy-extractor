@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace EdiEnergyExtractorCore;
+namespace EdiEnergyExtractor;
 
 public class ExportRunStatistics
 {

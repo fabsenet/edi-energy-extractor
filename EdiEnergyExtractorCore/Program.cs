@@ -8,12 +8,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommandLine;
 using CommandLine.Attributes;
+using EdiEnergyExtractorCore;
 using Microsoft.Extensions.Configuration;
 using NLog;
 using Raven.Client.Documents;
 using Raven.Client.Documents.Indexes;
 
-namespace EdiEnergyExtractorCore;
+namespace EdiEnergyExtractor;
 
 record Options
 {
@@ -30,7 +31,7 @@ static class Program
 
     static async Task Main(string[] args)
     {
-        Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+        Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
 #if !DEBUG
         try
         {
@@ -130,8 +131,8 @@ static class Program
 
         foreach (var doc in docsToSave)
         {
-            string raw = doc.DocumentNameRaw.Replace("\n", " ", StringComparison.Ordinal);
-            var filename = $"{string.Join("_", (doc.ContainedMessageTypes ?? ["unknown"]).OrderBy(m => m))}_MIG_{doc.MessageTypeVersion}_{(doc.DocumentDate?.ToString("yyyy-MM-dd", _germanCulture) ?? "???")}{Path.GetExtension(doc.Filename)}";
+            var raw = doc.DocumentNameRaw.Replace("\n", " ", StringComparison.Ordinal);
+            var filename = $"{string.Join("_", (doc.ContainedMessageTypes ?? ["unknown"]).OrderBy(m => m))}_MIG_{doc.MessageTypeVersion}_{doc.DocumentDate?.ToString("yyyy-MM-dd", _germanCulture) ?? "???"}{Path.GetExtension(doc.Filename)}";
 
             var foldername = $"{doc.DocumentDate?.ToString("yyyy-MM-dd", _germanCulture) ?? "unknown"} MIG";
             Directory.CreateDirectory(foldername);

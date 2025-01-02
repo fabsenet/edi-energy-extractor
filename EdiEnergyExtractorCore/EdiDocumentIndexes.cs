@@ -1,7 +1,8 @@
 ﻿using System.Linq;
+using EdiEnergyExtractorCore;
 using Raven.Client.Documents.Indexes;
 
-namespace EdiEnergyExtractorCore;
+namespace EdiEnergyExtractor;
 
 class EdiDocuments_DocumentUri : AbstractIndexCreationTask<EdiDocument>
 {
