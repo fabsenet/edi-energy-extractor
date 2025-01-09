@@ -6,6 +6,10 @@
 *.user
 *.sln.docstates
 
+Output/
+OutputSC/
+*.7z
+
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/
