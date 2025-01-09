@@ -182,14 +182,14 @@ static class Program
             Urls = [config["DatabaseUrl"]],
             Database = config["DatabaseName"]
         };
-        var databaseCertificate = config["DatabaseCertificate"];
-        if (!string.IsNullOrEmpty(databaseCertificate))
+
+        var certPath = config["DatabaseCertificate"];
+        if (!string.IsNullOrEmpty(certPath))
         {
-            // powershell: [Environment]::SetEnvironmentVariable("EdiDocuments_DatabaseUrl", "https://sazesla11442:10204/", "User")
-            // powershell: [Environment]::SetEnvironmentVariable("EdiDocuments_DatabaseName", "EdiDocuments", "User")
-            // powershell: [Environment]::SetEnvironmentVariable("EdiDocuments_DatabaseCertificate", "C:\....pfx", "User")
-            if (!File.Exists(databaseCertificate)) throw new Exception($"certificate file does not exist: {databaseCertificate}");
-            store.Certificate = new X509Certificate2(databaseCertificate);
+            if (!File.Exists(certPath)) throw new Exception($"certificate files does not exist: {certPath}");
+
+            var limits = new Pkcs12LoaderLimits { PreserveStorageProvider = true };
+            store.Certificate = X509CertificateLoader.LoadPkcs12(File.ReadAllBytes(certPath), null, X509KeyStorageFlags.MachineKeySet, limits);
         }
 
         store.Initialize();

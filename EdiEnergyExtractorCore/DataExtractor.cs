@@ -4,10 +4,10 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using EdiEnergyExtractor;
-using HtmlAgilityPack;
 using iTextSharp.text.pdf;
 using iTextSharp.text.pdf.parser;
 using NLog;
@@ -17,7 +17,7 @@ using Path = System.IO.Path;
 
 namespace EdiEnergyExtractorCore;
 
-public record OnlineDocument
+internal record OnlineDocument
 {
     public required string DocumentNameRaw { get; init; }
     public DateTime? ValidFrom { get; set; }
@@ -25,7 +25,7 @@ public record OnlineDocument
     public required Uri DocumentUri { get; init; }
 }
 
-public record OnlineAndExistingMatchedDocument
+internal record OnlineAndExistingMatchedDocument
 {
     public required OnlineDocument Online { get; init; }
     public EdiDocument? Existing { get; set; }
@@ -36,11 +36,10 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
     private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 
     private readonly List<string> _rootHtml = [];
-    private readonly Uri _baseUri = new("https://www.edi-energy.de");
+    private readonly Uri _baseUri = new("https://bdew-mako.de");
     private readonly Uri[] _webUris =
     {
-        new ("https://www.edi-energy.de/index.php?id=38&tx_bdew_bdew%5Bview%5D=now&tx_bdew_bdew%5Baction%5D=list&tx_bdew_bdew%5Bcontroller%5D=Dokument&cHash=5d1142e54d8f3a1913af8e4cc56c71b2"),
-        new ("https://www.edi-energy.de/index.php?id=38&tx_bdew_bdew%5Bview%5D=future&tx_bdew_bdew%5Baction%5D=list&tx_bdew_bdew%5Bcontroller%5D=Dokument&cHash=325de212fe24061e83e018a2223e6185")
+        new ("https://bdew-mako.de/api/documents"),
     };
 
     public async Task LoadFromWeb()
@@ -67,82 +66,116 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
                 .ToList();
         return docs;
     }
+    /// <summary>
+    /// Sample JSON:
+    /// {"userId":0,"id":5486,"fileId":9314,"title":"IFTSTA MIG 2.0d - konsolidierte Lesefassung mit Fehlerkorrekturen Stand: 06.12.2021","version":null,"topicId":116,"topicGroupId":17,"isFree":true,"publicationDate":null,"validFrom":"2022-04-01T00:00:00","validTo":"2022-01-30T00:00:00","isConsolidatedReadingVersion":false,"isExtraordinaryPublication":false,"isErrorCorrection":false,"correctionDate":null,"isInformationalReadingVersion":false,"fileType":"application/pdf","topicGroupSortNr":1,"topicSortNr":1}
+    /// </summary>
+
+    internal record OnlineJsonDocument
+    {
+        public required string Title { get; set; }
+        public int Id { get; set; }
+        public int FileId { get; set; }
+        public int TopicId { get; set; }
+        public int TopicGroupId { get; set; }
+        public bool IsFree { get; set; }
+        public required DateTime ValidFrom { get; set; }
+        public DateTime? ValidTo { get; set; }
+        public bool IsConsolidatedReadingVersion { get; set; }
+        public bool IsExtraordinaryPublication { get; set; }
+        public bool IsErrorCorrection { get; set; }
+        public bool IsInformationalReadingVersion { get; set; }
+        public string? FileType { get; set; }
+        public int TopicGroupSortNr { get; set; }
+        public int TopicSortNr { get; set; }
+    }
+
+    internal record BdewMakoApiDocumentsResponse
+    {
+        public List<OnlineJsonDocument>? Data { get; set; }
+    }
 
     public async Task AnalyzeResult()
     {
-        var htmlDocs = _rootHtml.Select(html =>
+        var jsonSerializerOptions = new JsonSerializerOptions
         {
-            var htmlDoc = new HtmlDocument();
-            htmlDoc.LoadHtml(html);
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            RespectRequiredConstructorParameters = true
+        };
 
-            return htmlDoc.DocumentNode;
-        })
-            .ToList();
+        var onlineJsonDocs = _rootHtml
+                        .SelectMany(json => JsonSerializer.Deserialize<BdewMakoApiDocumentsResponse>(json, jsonSerializerOptions)?.Data ?? [])
+                        .OrderBy(d => d.Title)
+                        .ThenByDescending(d => d.ValidFrom)
+                        .ToList();
 
+        var pdfOnlineDocs = onlineJsonDocs.Where(d => d.FileType == "application/pdf" && d.IsFree).ToList();
+
+        int newEdiDocumentCount = 0;
+        List<EdiDocument> existingDocuments;
+
+        List<OnlineAndExistingMatchedDocument> matchedDocs;
+        using (var session = store?.OpenSession())
         {
-            int newEdiDocumentCount = 0;
-            List<EdiDocument> existingDocuments;
+            existingDocuments = session != null ? FetchExistingEdiDocuments(session) : [];
 
-            List<OnlineAndExistingMatchedDocument> matchedDocs;
-            using (var session = store?.OpenSession())
-            {
-                existingDocuments = session != null ? FetchExistingEdiDocuments(session) : [];
-
-                //select all data rows from table
-                var onlineDocs = htmlDocs
-                    .SelectMany(d => d.SelectNodes("//table[1]//tr[.//a[@href]]"))
-                    .Select(tr => new OnlineDocument
-                    {
-                        DocumentNameRaw = MultiWhitespaceRegex().Replace(tr.SelectSingleNode(".//td[1]").InnerText.Trim(), " "),
-                        ValidFrom = ConvertToDateTime(tr.SelectSingleNode(".//td[2]")),
-                        ValidTo = ConvertToDateTime(tr.SelectSingleNode(".//td[3]")),
-                        DocumentUri = BuildDocumentUri(tr)
-                    })
-                    .Where(tr => !tr.DocumentNameRaw.Contains("EDIFACT Utilities", StringComparison.OrdinalIgnoreCase))
-                    .Where(d => !d.DocumentNameRaw.Contains("informatorische Lesefassung", StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                matchedDocs = onlineDocs
-                    .Select(tr => new OnlineAndExistingMatchedDocument
-                    {
-                        Online = tr,
-                        Existing = existingDocuments.FirstOrDefault(d => d.DocumentNameRaw == tr.DocumentNameRaw)
-                    })
-                    .ToList();
-
-                _log.Info($"Extracted {matchedDocs.Count} online listed documents.");
-
-                foreach (var updateMatch in matchedDocs.Where(d => d.Existing != null))
+            //select all data rows from table
+            var onlineDocs = pdfOnlineDocs
+                .Select(jsonDoc => new OnlineDocument
                 {
-                    updateMatch.Existing!.ValidTo = updateMatch.Online.ValidTo;
-                    updateMatch.Existing.ValidFrom = updateMatch.Online.ValidFrom;
-                }
+                    DocumentNameRaw = jsonDoc.Title,
+                    ValidFrom = jsonDoc.ValidFrom,
+                    ValidTo = jsonDoc.ValidTo,
+                    DocumentUri = new Uri(_baseUri, $"api/downloadFile/{jsonDoc.FileId}")
+                })
+                .Where(tr => !tr.DocumentNameRaw.Contains("EDIFACT Utilities", StringComparison.OrdinalIgnoreCase))
+                .Where(d => !d.DocumentNameRaw.Contains("informatorische Lesefassung", StringComparison.OrdinalIgnoreCase))
+                .ToList();
 
-                session?.SaveChanges();
+            matchedDocs = onlineDocs
+                .Select(onlineDoc => new OnlineAndExistingMatchedDocument
+                {
+                    Online = onlineDoc,
+                    Existing = existingDocuments.FirstOrDefault(d => d.DocumentUri == onlineDoc.DocumentUri)
+                })
+                .ToList();
+
+            var newDocumentCount = matchedDocs.Count(d => d.Existing == null);
+
+
+            _log.Info($"Extracted {matchedDocs.Count} online listed documents. {newDocumentCount} are new!");
+
+            foreach (var updateMatch in matchedDocs.Where(d => d.Existing != null))
+            {
+                updateMatch.Existing!.ValidTo = updateMatch.Online.ValidTo;
+                updateMatch.Existing.ValidFrom = updateMatch.Online.ValidFrom;
             }
 
-            var newDocumentNames = new List<string>();
-            foreach (var doc in matchedDocs.Where(d => d.Existing == null).OrderByDescending(d => d.Online.ValidFrom))
-            {
-                var newEdiDocument = new EdiDocument(doc.Online.DocumentNameRaw, doc.Online.DocumentUri, doc.Online.ValidFrom, doc.Online.ValidTo);
-                _log.Warn($"Working on new document {newEdiDocument.DocumentName} {newEdiDocument.MessageTypeVersion}");//date is guessed from filename and only available after download of the actual file!
-
-                var pdfStream = await CreateMirrorAndAnalyzePdfContent(newEdiDocument).ConfigureAwait(false);
-                newDocumentNames.Add($"{newEdiDocument.DocumentName} {newEdiDocument.MessageTypeVersion}, {newEdiDocument.DocumentDate?.ToString("d", _germanCulture) ?? "no date"}");
-
-                if (store != null)
-                {
-                    using var session = store.OpenSession();
-                    session.Store(newEdiDocument);
-                    session.Advanced.Attachments.Store(newEdiDocument, "pdf", pdfStream);
-                    ++newEdiDocumentCount;
-                    _log.Info($"saving session changes after {newEdiDocumentCount} new documents.");
-                    session.SaveChanges();
-                }
-            };
-
-            if (newDocumentNames.Count != 0) _log.Warn($"New documents:\n{string.Join("\n", newDocumentNames)}");
+            session?.SaveChanges();
         }
+
+        var newDocumentNames = new List<string>();
+        foreach (var doc in matchedDocs.Where(d => d.Existing == null).OrderByDescending(d => d.Online.ValidFrom))
+        {
+            var newEdiDocument = new EdiDocument(doc.Online.DocumentNameRaw, doc.Online.DocumentUri, doc.Online.ValidFrom, doc.Online.ValidTo);
+            _log.Warn($"Working on new document {newEdiDocument.DocumentName} {newEdiDocument.MessageTypeVersion}");//date is guessed from filename and only available after download of the actual file!
+
+            var pdfStream = await CreateMirrorAndAnalyzePdfContent(newEdiDocument).ConfigureAwait(false);
+            newDocumentNames.Add($"{newEdiDocument.DocumentName} {newEdiDocument.MessageTypeVersion}, {newEdiDocument.DocumentDate?.ToString("d", _germanCulture) ?? "no date"}");
+
+            if (store != null)
+            {
+                using var session = store.OpenSession();
+                session.Store(newEdiDocument);
+                session.Advanced.Attachments.Store(newEdiDocument, "pdf", pdfStream);
+                ++newEdiDocumentCount;
+                _log.Info($"saving session changes after {newEdiDocumentCount} new documents.");
+                session.SaveChanges();
+            }
+        };
+
+        if (newDocumentNames.Count != 0) _log.Warn($"New documents:\n{string.Join("\n", newDocumentNames)}");
 
         if (store == null)
         {
@@ -352,7 +385,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
         {
             var past = generalDocumentGroup.Where(d => d.ValidTo.HasValue && d.ValidTo < DateTime.Now).OrderByDescending(d => d.DocumentDate).FirstOrDefault();
             var current = generalDocumentGroup.Where(d => d.ValidFrom < DateTime.Now && (!d.ValidTo.HasValue || d.ValidTo > DateTime.Now)).OrderByDescending(d => d.DocumentDate).FirstOrDefault();
-            var future = generalDocumentGroup.Where(d => (!d.ValidTo.HasValue || d.ValidTo > DateTime.Now)).OrderByDescending(d => d.DocumentDate).FirstOrDefault();
+            var future = generalDocumentGroup.Where(d => !d.ValidTo.HasValue || d.ValidTo > DateTime.Now).OrderByDescending(d => d.DocumentDate).FirstOrDefault();
 
             if (past != null) past.IsLatestVersion = true;
             if (current != null) current.IsLatestVersion = true;
@@ -362,25 +395,12 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
         session.SaveChanges();
     }
 
-    private Uri BuildDocumentUri(HtmlNode tr)
-    {
-        var rawHref = tr.SelectSingleNode(".//td[4]//a[@href]").GetAttributeValue("href", null) ?? throw new ArgumentException("the href is null!");
-        var href = rawHref.Replace("&amp;", "&", StringComparison.OrdinalIgnoreCase);
-        href = CHashRegex().Replace(href, "");
-        return new Uri(_baseUri, href);
-    }
 
     private readonly CultureInfo _germanCulture = new("de-DE");
 
-    private DateTime? ConvertToDateTime(HtmlNode htmlNode)
+    private DateTime? ConvertToDateTime(string? textValue)
     {
-        if (htmlNode == null)
-        {
-            return null;
-        }
-        var text = htmlNode.InnerText.Trim();
-
-        if (DateTime.TryParse(text, _germanCulture, DateTimeStyles.None, out var dt))
+        if (DateTime.TryParse(textValue, _germanCulture, DateTimeStyles.None, out var dt))
         {
             return dt;
         }

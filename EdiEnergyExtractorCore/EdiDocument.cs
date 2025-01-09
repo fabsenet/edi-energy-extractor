@@ -178,9 +178,10 @@ public partial record EdiDocument
             // "PID_1_3_20200401_V3.pdf"
             //could be like "Codeliste-OBIS-Kennzahlen_2_2h_20190401_2"
             // or "Ã?nderungshistorie XML-Datenformate_202112120_Onlineversion"
-            else if (Regex.IsMatch(filename, @"_202[1-3][0-1]\d[0-3]\d_[^_]*$"))
+            //filename='UTILMD_MIG_Strom S2_1_ 20241001'
+            else if (Regex.IsMatch(filename + "_", @"_\s?202[1-6][0-1]\d[0-3]\d(?:_[^_]*$)?$"))
             {
-                var match = Regex.Match(filename, @"_(?<year>\d{4})(?<month>\d{2})(?<day>\d{2})_", RegexOptions.ExplicitCapture);
+                var match = Regex.Match(filename, @"_\s?(?<year>\d{4})(?<month>\d{2})(?<day>\d{2})(?:_|$)", RegexOptions.ExplicitCapture);
                 var year = int.Parse(match.Groups["year"].Value, _germanCulture);
                 var month = int.Parse(match.Groups["month"].Value, _germanCulture);
                 var day = int.Parse(match.Groups["day"].Value, _germanCulture);
@@ -229,6 +230,22 @@ public partial record EdiDocument
             else if (filename == "Kostenblatt FB_1.0c_202404")
             {
                 return new DateTime(2024, 4, 2);
+            }
+            else if (filename is "Energie-Info_CONTRL_AHB_1.0")
+            {
+                return new DateTime(2007, 7, 6);
+            }
+            else if (filename is "Energie-Info_MSCONS_2.0d" or "Energie-Info_AHB_MSCONS-AHB_2.0d")
+            {
+                return new DateTime(2007, 6, 6);
+            }
+            else if (filename is "AS4-Profil_1.1_v14" or "Regelungen_zum__bertragungsweg_AS4_2.3_v09" or "Regelungen_zum_Verzeichnisdienst_1.0_v06" or "Verzeichnisdienst_API_v04")
+            {
+                return new DateTime(2024, 10, 1);
+            }
+            else if (filename is "Rz__API_Webdienste_1_0_v05_final")
+            {
+                return new DateTime(2024, 7, 3);
             }
             else if (Regex.IsMatch(filename, @"^Regelungen_zum_.{1,2}bertragungsweg_AS4_final$")) //schei? encoding
             {
