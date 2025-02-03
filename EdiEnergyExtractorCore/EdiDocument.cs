@@ -247,6 +247,10 @@ public partial record EdiDocument
             {
                 return new DateTime(2024, 7, 3);
             }
+            else if (filename is "Rz__API-Webdienste_1.1_v07")
+            {
+                return new DateTime(2025, 1, 31);
+            }
             else if (Regex.IsMatch(filename, @"^Regelungen_zum_.{1,2}bertragungsweg_AS4_final$")) //schei? encoding
             {
                 return new DateTime(2022, 9, 1);
