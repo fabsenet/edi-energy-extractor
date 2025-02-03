@@ -366,7 +366,10 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
                                 select g;
 
         var newestEdiDocumentsInEachGroup = ediDocumentGroups
-            .Select(g => g.OrderByDescending(doc => doc.DocumentDate).First())
+            .Select(g => g.OrderByDescending(doc => doc.DocumentDate)
+                            .ThenByDescending(doc => doc.DocumentUri.ToString())//it happened that the same document was uploaded twice and this selects the newer one
+                            .First()
+                            )
             .ToList();
 
         newestEdiDocumentsInEachGroup.ForEach(doc => doc.IsLatestVersion = true);
