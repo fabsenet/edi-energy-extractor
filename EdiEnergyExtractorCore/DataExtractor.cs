@@ -173,7 +173,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
                 _log.Info($"saving session changes after {newEdiDocumentCount} new documents.");
                 session.SaveChanges();
             }
-        };
+        }
 
         if (newDocumentNames.Count != 0) _log.Warn($"New documents:\n{string.Join("\n", newDocumentNames)}");
 
@@ -271,7 +271,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
             .Where(e => e.ContainedMessageTypes.Count != 0)
             .ToList();
 
-        //ediDocuments = ediDocuments.Where(e => e.ContainedMessageTypes?.Contains("UTILMD") == true && e.ContainedMessageTypes.Count()>1).ToList();
+        //ediDocuments = ediDocuments.Where(e => e.ContainedMessageTypes?.Contains("UTILMD") == true && e.IsGas && e.IsMig).ToList();
 
         //determine what the latest document version is again
         var ediDocumentGroups = from doc in ediDocuments
@@ -299,7 +299,14 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
         {
             EdiDocument? lastDocument = null;
 
-            foreach (var ediDocument in ediDocumentGroup)
+            var ediDocumentGroupOrdered = ediDocumentGroup
+                .OrderByDescending(d => d.ValidFrom)
+                .OrderByDescending(d => d.MessageTypeVersion)
+                .ThenByDescending(d => d.DocumentDate)
+                .ThenByDescending(d => d.Id)
+                .ToList();
+
+            foreach (var ediDocument in ediDocumentGroupOrdered)
             {
                 if (lastDocument != null && !ediDocument.ValidTo.HasValue)
                 {

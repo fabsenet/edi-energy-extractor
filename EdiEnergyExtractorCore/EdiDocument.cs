@@ -127,7 +127,13 @@ public partial record EdiDocument
             return null;
         }
 
-        return match.Groups[1].Value;
+        var rawValue = match.Groups[1].Value;
+        if (IsMig && rawValue == "2.1" && ContainedMessageTypes.FirstOrDefault() == "UTILMD")
+        {
+            //this is a special case for the UTILMD MIG 2.1 document, which is actually S2.1
+            rawValue = "S2.1";
+        }
+        return rawValue;
     }
 
     private DateTime? GuessDocumentDateFromDocumentNameRawOrFilename()
@@ -142,9 +148,16 @@ public partial record EdiDocument
         }
         else
         {
+
             //alternatively try parsing the date from the file name
             var filename = Path.GetFileNameWithoutExtension(Filename)
             .Replace("_202112120_", "_20211220_", StringComparison.Ordinal); //fix typo in filename='Ã?nderungshistorie XML-Datenformate_202112120_Onlineversion'
+
+            //fix filename with mithing dot
+            if (Regex.IsMatch(filename, @"\dpdf$"))
+            {
+                filename = filename[0..^3];
+            }
 
             if (filename.EndsWith("_end", StringComparison.Ordinal))
             {
@@ -251,6 +264,10 @@ public partial record EdiDocument
             {
                 return new DateTime(2025, 1, 31);
             }
+            else if (filename is "Rz__API-Webdienste_1.2" or "Regelungen_zum_Verzeichnisdienst_1.1")
+            {
+                return new DateTime(2025, 4, 1);
+            }
             else if (Regex.IsMatch(filename, @"^Regelungen_zum_.{1,2}bertragungsweg_AS4_final$")) //schei? encoding
             {
                 return new DateTime(2022, 9, 1);
@@ -263,6 +280,10 @@ public partial record EdiDocument
             {
                 return new DateTime(2024, 4, 2);
             }
+            else if (Regex.IsMatch(filename, @"^Regelungen_zum_.{1,2}bertragungsweg_AS4_2\.4$")) //schei? encoding
+            {
+                return new DateTime(2025, 4, 1);
+            }
             else if (Regex.IsMatch(filename, @"^EDI_Energy_AWH_Einf.{1,2}hrungsszenario_AS4_final$")) //schei? encoding
             {
                 return new DateTime(2022, 9, 1);
@@ -274,6 +295,10 @@ public partial record EdiDocument
             else if (Regex.IsMatch(filename, @"^Regelungen_zum_.{1,2}bertragungsweg_1\.8$")) //schei? encoding
             {
                 return new DateTime(2024, 4, 2);
+            }
+            else if (Regex.IsMatch(filename, @"^Regelungen_zum_.{1,2}bertragungsweg_1\.9$")) //schei? encoding
+            {
+                return new DateTime(2025, 4, 1);
             }
             else if (Regex.IsMatch(filename, @"^AWH_Einf.{1,2}hrungsszenario_BK6-20-160_Version_1\.8$")) //schei? encoding
             {
