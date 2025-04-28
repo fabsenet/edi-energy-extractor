@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -10,17 +12,63 @@ using NLog;
 
 namespace EdiEnergyExtractor;
 
-public class CacheForcableHttpClient
+internal class CacheForcableHttpClient : IDisposable
 {
     private readonly Logger _log = LogManager.GetCurrentClassLogger();
     private static readonly SemaphoreSlim _semaphore = new(1);
 
     private bool PreferCache { get; }
 
-    public CacheForcableHttpClient(bool preferCache = false)
+    private readonly string? _username;
+    private readonly string? _password;
+    private HttpClient? _httpClient;
+
+    public CacheForcableHttpClient(bool preferCache, string? username, string? password)
     {
         PreferCache = preferCache;
+        _username = username;
+        _password = password;
+
         Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory, "cache"));
+    }
+
+    private readonly HttpClientHandler _httpClientHandler = new()
+    {
+        UseProxy = true,
+        Proxy = null, // use system proxy
+        DefaultProxyCredentials = CredentialCache.DefaultNetworkCredentials
+    };
+    private record AuthenticationResponse
+    {
+        public string? Token { get; init; }
+        public string? DisplayName { get; init; }
+        public DateTime? ExpirationDate { get; init; }
+        public List<string>? Features { get; init; }
+    }
+
+    private async Task<HttpClient> GetHttpClient()
+    {
+        if (_httpClient != null) return _httpClient;
+
+        var httpClient = new HttpClient(_httpClientHandler);
+
+        if (_username != null && _password != null)
+        {
+            _log.Debug($"Using credentials for {_username} to login");
+            var byteArray = Encoding.ASCII.GetBytes($"{_username}:{_password}");
+            httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", Convert.ToBase64String(byteArray));
+
+            var loginUri = new Uri("https://www.bdew-mako.de/api/login");
+            var response = await httpClient.GetFromJsonAsync<AuthenticationResponse>(loginUri).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(response?.Token))
+            {
+                throw new InvalidOperationException($"Login failed for {_username}.");
+            }
+            httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", response.Token);
+        }
+
+        _httpClient = httpClient;
+        return httpClient;
     }
 
     public async Task<(MemoryStream content, string filename)> GetAsync(Uri uri)
@@ -49,15 +97,7 @@ public class CacheForcableHttpClient
                     _log.Debug($"loading web ressource: {uri}");
                 }
 
-                using var handler = new HttpClientHandler
-                {
-                    UseProxy = true,
-                    Proxy = null, // use system proxy
-                    DefaultProxyCredentials = CredentialCache.DefaultNetworkCredentials
-                };
-                using var httpClient = new HttpClient(handler);
-
-                using var result = await httpClient.GetAsync(uri).ConfigureAwait(false);
+                using var result = await (await GetHttpClient().ConfigureAwait(false)).GetAsync(uri).ConfigureAwait(false);
                 result.EnsureSuccessStatusCode();
 
                 content = await result.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
@@ -89,5 +129,13 @@ public class CacheForcableHttpClient
 
             return (new MemoryStream(content), filename);
         }
+    }
+
+    public void Dispose()
+    {
+        _httpClientHandler.Dispose();
+        _httpClient?.Dispose();
+        _httpClient = null;
+        _semaphore.Dispose();
     }
 }

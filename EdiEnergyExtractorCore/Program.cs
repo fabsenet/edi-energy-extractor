@@ -23,6 +23,12 @@ record Options
 
     [OptionalArgument(false, "dryrun", "Set to true to not opperate on the database at all. This will only download the latest data from edi-energy.de")]
     public bool DryRun { get; set; }
+
+    [OptionalArgument(null, "username", "Username for edi-energy.de")]
+    public string? Username { get; set; }
+
+    [OptionalArgument(null, "password", "Password for edi-energy.de")]
+    public string? Password { get; set; }
 }
 
 static class Program
@@ -70,7 +76,7 @@ static class Program
 
         if (store != null) RemoveDuplicatesFromStore(store);
 
-        var dataExtractor = new DataExtractor(new CacheForcableHttpClient(options.PreferCache), store);
+        var dataExtractor = new DataExtractor(new CacheForcableHttpClient(options.PreferCache, options.Username, options.Password), store);
 
         //request data from web page
         await dataExtractor.LoadFromWeb().ConfigureAwait(false);

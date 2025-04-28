@@ -106,9 +106,15 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
 
         var onlineJsonDocs = _rootHtml
                         .SelectMany(json => JsonSerializer.Deserialize<BdewMakoApiDocumentsResponse>(json, jsonSerializerOptions)?.Data ?? [])
+                        .Where(d => d.ValidTo == null || d.ValidTo.Value.Year >= 2023) //do not mess with old docs
                         .OrderBy(d => d.Title)
                         .ThenByDescending(d => d.ValidFrom)
                         .ToList();
+
+        foreach (var jsonDoc in onlineJsonDocs)
+        {
+            jsonDoc.Title = jsonDoc.Title.Trim();
+        }
 
         var pdfOnlineDocs = onlineJsonDocs.Where(d => d.FileType == "application/pdf" && d.IsFree).ToList();
 
@@ -176,6 +182,35 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
         }
 
         if (newDocumentNames.Count != 0) _log.Warn($"New documents:\n{string.Join("\n", newDocumentNames)}");
+
+        //now the same for XML documents
+        {
+            var xmlOnlineDocs = onlineJsonDocs.Where(d => d.FileType == "text/xml").Select(OnlineJsonDocument2EdiXmlDocumentMapper.Map).ToList();
+            using var session = store?.OpenSession();
+            {
+                var existingXmlDocuments = session != null ? session.Query<EdiXmlDocument>().ToList() : [];
+                foreach (var xmlDoc in xmlOnlineDocs)
+                {
+                    var existingDoc = existingXmlDocuments.FirstOrDefault(d => d.FileId == xmlDoc.FileId);
+                    if (existingDoc != null)
+                    {
+                        //copy over values that might have changed
+                        existingDoc.ValidFrom = xmlDoc.ValidFrom;
+                        existingDoc.ValidTo = xmlDoc.ValidTo;
+                    }
+                    else
+                    {
+                        //store new document
+                        session?.Store(xmlDoc);
+                        var (xmlStream, attachmentFilename) = await DownloadXmlContentAsync(xmlDoc).ConfigureAwait(false);
+                        xmlDoc.AttachmentFilename = attachmentFilename;
+                        session?.Advanced.Attachments.Store(xmlDoc, "xml", xmlStream);
+                        _log.Info($"Saved new XML document {xmlDoc}");
+                    }
+                }
+                session?.SaveChanges();
+            }
+        }
 
         if (store == null)
         {
@@ -452,6 +487,13 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
         _log.Trace(CultureInfo.InvariantCulture, "Stored copy of ressource {DocumentUri}", ediDocument.DocumentUri);
 
         return stream;
+    }
+
+    private async Task<(MemoryStream content, string filename)> DownloadXmlContentAsync(EdiXmlDocument xmlDoc)
+    {
+        var (stream, filename) = await httpClient.GetAsync(new Uri(_baseUri, $"api/downloadFile/{xmlDoc.FileId}")).ConfigureAwait(false);
+
+        return (stream, filename);
     }
 
     [GeneratedRegex(" {2,}")]
