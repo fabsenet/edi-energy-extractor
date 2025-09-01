@@ -107,6 +107,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
         var onlineJsonDocs = _rootHtml
                         .SelectMany(json => JsonSerializer.Deserialize<BdewMakoApiDocumentsResponse>(json, jsonSerializerOptions)?.Data ?? [])
                         .Where(d => d.ValidTo == null || d.ValidTo.Value.Year >= 2023) //do not mess with old docs
+                        .Where(d => d.Id != 7791) // hide a broken (and duplicate) document "UTILTS AHB 1.0 - konsolidierte Lesefassung mit Fehlerkorrekturen Stand: 18.02.2025"
                         .OrderBy(d => d.Title)
                         .ThenByDescending(d => d.ValidFrom)
                         .ToList();
@@ -306,7 +307,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
             .Where(e => e.ContainedMessageTypes.Count != 0)
             .ToList();
 
-        //ediDocuments = ediDocuments.Where(e => e.ContainedMessageTypes?.Contains("UTILMD") == true && e.IsGas && e.IsMig).ToList();
+        //ediDocuments = ediDocuments.Where(e => e.ContainedMessageTypes?.Contains("UTILTS") == true && e.IsAhb).ToList();
 
         //determine what the latest document version is again
         var ediDocumentGroups = from doc in ediDocuments
@@ -336,7 +337,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
 
             var ediDocumentGroupOrdered = ediDocumentGroup
                 .OrderByDescending(d => d.ValidFrom)
-                .OrderByDescending(d => d.MessageTypeVersion)
+                .ThenByDescending(d => d.MessageTypeVersion)
                 .ThenByDescending(d => d.DocumentDate)
                 .ThenByDescending(d => d.Id)
                 .ToList();
