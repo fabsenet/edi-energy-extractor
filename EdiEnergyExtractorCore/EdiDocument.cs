@@ -284,6 +284,10 @@ public partial record EdiDocument
             {
                 return new DateTime(2025, 4, 1);
             }
+            else if (Regex.IsMatch(filename, @"^Regelungen_zum_.{1,2}bertragungsweg_AS4_2\.5$")) //schei? encoding
+            {
+                return new DateTime(2025, 10, 1);
+            }
             else if (Regex.IsMatch(filename, @"^EDI_Energy_AWH_Einf.{1,2}hrungsszenario_AS4_final$")) //schei? encoding
             {
                 return new DateTime(2022, 9, 1);
