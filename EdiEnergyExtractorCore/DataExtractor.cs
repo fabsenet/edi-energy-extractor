@@ -307,7 +307,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
             .Where(e => e.ContainedMessageTypes.Count != 0)
             .ToList();
 
-        //ediDocuments = ediDocuments.Where(e => e.ContainedMessageTypes?.Contains("UTILTS") == true && e.IsAhb).ToList();
+        //ediDocuments = ediDocuments.Where(e => e.ContainedMessageTypes?.Contains("UTILMD") == true && e.IsAhb && e.IsStrom).ToList();
 
         //determine what the latest document version is again
         var ediDocumentGroups = from doc in ediDocuments
@@ -336,9 +336,8 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
             EdiDocument? lastDocument = null;
 
             var ediDocumentGroupOrdered = ediDocumentGroup
-                .OrderByDescending(d => d.ValidFrom)
-                .ThenByDescending(d => d.MessageTypeVersion)
-                .ThenByDescending(d => d.DocumentDate)
+                .OrderByDescending(d => d.MessageTypeVersion)
+                .ThenByDescending(d => d.DocumentDate > d.ValidFrom ? d.DocumentDate : d.ValidFrom)
                 .ThenByDescending(d => d.Id)
                 .ToList();
 
