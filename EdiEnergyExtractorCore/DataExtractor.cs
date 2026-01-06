@@ -186,7 +186,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
 
         //now the same for XML documents
         {
-            var xmlOnlineDocs = onlineJsonDocs.Where(d => d.FileType == "text/xml").Select(OnlineJsonDocument2EdiXmlDocumentMapper.Map).ToList();
+            var xmlOnlineDocs = onlineJsonDocs.Where(d => d.FileType == "text/xml").Select(OnlineJsonDocument2EdiXmlDocumentMapper.MapAndFix).ToList();
             using var session = store?.OpenSession();
             {
                 var existingXmlDocuments = session != null ? session.Query<EdiXmlDocument>().ToList() : [];
@@ -198,6 +198,9 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
                         //copy over values that might have changed
                         existingDoc.ValidFrom = xmlDoc.ValidFrom;
                         existingDoc.ValidTo = xmlDoc.ValidTo;
+                        existingDoc.MessageVersion = xmlDoc.MessageVersion;
+                        existingDoc.CleanedTitle = xmlDoc.CleanedTitle;
+                        existingDoc.OriginalTitle = xmlDoc.OriginalTitle;
                     }
                     else
                     {

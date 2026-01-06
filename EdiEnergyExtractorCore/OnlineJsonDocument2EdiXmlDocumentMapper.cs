@@ -3,10 +3,19 @@ using System.Text.RegularExpressions;
 using static EdiEnergyExtractorCore.DataExtractor;
 
 namespace EdiEnergyExtractor;
+
 internal partial class OnlineJsonDocument2EdiXmlDocumentMapper
 {
-    public static EdiXmlDocument Map(OnlineJsonDocument onlineJsonDocument)
+    public static EdiXmlDocument MapAndFix(OnlineJsonDocument onlineJsonDocument)
     {
+        if (UtilmdMigStromMissingSRegex().IsMatch(onlineJsonDocument.Title))
+        {
+            // they forgot the S in the version
+            // actual: UTILMD MIG Strom 2.1
+            // expected: UTILMD MIG Strom S2.1
+            //                            ^
+            onlineJsonDocument.Title = onlineJsonDocument.Title.Replace("Strom ", "Strom S", StringComparison.Ordinal);
+        }
         var ediXmlDocument = new EdiXmlDocument
         {
             Id = $"EdiXmlDocument/{onlineJsonDocument.Id}",
@@ -22,6 +31,9 @@ internal partial class OnlineJsonDocument2EdiXmlDocumentMapper
         };
         return ediXmlDocument;
     }
+
+    [GeneratedRegex(@"^UTILMD MIG Strom \d\.\d")]
+    private static partial Regex UtilmdMigStromMissingSRegex();
 
     private static string ReadMessageVersion(string title)
     {
