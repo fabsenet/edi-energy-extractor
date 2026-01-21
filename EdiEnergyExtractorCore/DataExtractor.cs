@@ -223,6 +223,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
         }
 
         FixMessageVersions();
+        HideWrongDocuments();
         UpdateValidToValuesOnGeneralDocuments();
         UpdateValidToValuesOnEdiDocuments();
         UpdateIsLatestVersionOnDocuments();
@@ -244,6 +245,24 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
             doc.MessageTypeVersion = doc.GetRawMessageTypeVersion();
         }
 
+        session.SaveChanges();
+    }
+
+    private void HideWrongDocuments()
+    {
+        if (store == null) throw new InvalidOperationException("store is null");
+        using var session = store.OpenSession();
+
+        var year2025 = new DateTime(2025, 12, 31);
+        //refetch
+        var ediDocuments = session.Query<EdiDocument>()
+            .Where(e => e.IsMig && e.ContainedMessageTypes.Any(m => m == "MSCONS") && e.MessageTypeVersion == "2.4d" && e.ValidTo < year2025)
+            .ToList();
+
+        foreach (var doc in ediDocuments)
+        {
+            session.Delete(doc);
+        }
         session.SaveChanges();
     }
 
@@ -310,7 +329,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
             .Where(e => e.ContainedMessageTypes.Count != 0)
             .ToList();
 
-        //ediDocuments = ediDocuments.Where(e => e.ContainedMessageTypes?.Contains("UTILMD") == true && e.IsAhb && e.IsStrom).ToList();
+        //ediDocuments = ediDocuments.Where(e => e.ContainedMessageTypes?.Contains("MSCONS") == true && e.IsMig).ToList();
 
         //determine what the latest document version is again
         var ediDocumentGroups = from doc in ediDocuments
