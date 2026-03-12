@@ -21,7 +21,7 @@ internal partial class OnlineJsonDocument2EdiXmlDocumentMapper
             Id = $"EdiXmlDocument/{onlineJsonDocument.Id}",
             OriginalTitle = onlineJsonDocument.Title,
             CleanedTitle = CleanTitle(onlineJsonDocument.Title),
-            FileId = onlineJsonDocument.FileId,
+            FileId = onlineJsonDocument.FileId ?? throw new NotImplementedException(nameof(onlineJsonDocument.FileId) + " is null. This is not expected."),
             ValidFrom = onlineJsonDocument.ValidFrom,
             ValidTo = onlineJsonDocument.ValidTo,
             IsAHB = IsAhbRegex().IsMatch(onlineJsonDocument.Title),

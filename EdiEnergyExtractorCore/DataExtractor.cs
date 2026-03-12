@@ -75,7 +75,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
     {
         public required string Title { get; set; }
         public int Id { get; set; }
-        public int FileId { get; set; }
+        public int? FileId { get; set; }
         public int TopicId { get; set; }
         public int TopicGroupId { get; set; }
         public bool IsFree { get; set; }
@@ -134,7 +134,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
                     DocumentNameRaw = jsonDoc.Title,
                     ValidFrom = jsonDoc.ValidFrom,
                     ValidTo = jsonDoc.ValidTo,
-                    DocumentUri = new Uri(_baseUri, $"api/downloadFile/{jsonDoc.FileId}")
+                    DocumentUri = new Uri(_baseUri, $"api/downloadFile/{jsonDoc.FileId ?? throw new ArgumentNullException(nameof(jsonDoc.FileId))}")
                 })
                 .Where(tr => !tr.DocumentNameRaw.Contains("EDIFACT Utilities", StringComparison.OrdinalIgnoreCase))
                 .Where(d => !d.DocumentNameRaw.Contains("informatorische Lesefassung", StringComparison.OrdinalIgnoreCase))
