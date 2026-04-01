@@ -1,7 +1,8 @@
 {
   "profiles": {
-    "Without arguments": {
-      "commandName": "Project"
+    "Without arguments (local rvn)": {
+      "commandName": "Project",
+      "commandLineArgs": ""
     },
     "dryrun": {
       "commandName": "Project",
@@ -15,14 +16,12 @@
       "commandName": "Project",
       "commandLineArgs": "-prefercache true"
     },
-    "local+prefercache": {
+    "PROD update": {
       "commandName": "Project",
+      "commandLineArgs": "",
       "environmentVariables": {
-        "EdiDocuments_DatabaseUrl": "http://127.0.0.1:8080",
-        "EdiDocuments_DatabaseName": "EdiDocsDev",
-        "EdiDocuments_DatabaseCertificate": ""
-      },
-      "commandLineArgs": "-prefercache true"
+        "DOTNET_ENVIRONMENT": "Production"
+      }
     }
   }
 }

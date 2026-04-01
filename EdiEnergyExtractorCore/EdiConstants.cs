@@ -26,5 +26,6 @@ public static class EdiConstants
         {"Stammdatenänderung", new List<string> {"Stammdatenänderung"}},
         {"Zählzeitdefinitionen", new List<string> {"Zählzeitdefinitionen"}},
         {"Berechnungsformel", new List<string> {"Berechnungsformel"}},
+        {"Definitionen", new List<string> {"AHB Definitionen"}} // UTILTS
     };
 }

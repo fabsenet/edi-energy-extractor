@@ -190,3 +190,4 @@ FakesAssemblies/
 ConnectionStrings.config
 .vs/
 launchSettings.jsonOutput
+/EdiEnergyExtractorCore/Properties/appsettings.Production.json

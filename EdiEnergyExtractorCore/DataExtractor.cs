@@ -75,7 +75,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
     {
         public required string Title { get; set; }
         public int Id { get; set; }
-        public int FileId { get; set; }
+        public int? FileId { get; set; }
         public int TopicId { get; set; }
         public int TopicGroupId { get; set; }
         public bool IsFree { get; set; }
@@ -106,9 +106,16 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
 
         var onlineJsonDocs = _rootHtml
                         .SelectMany(json => JsonSerializer.Deserialize<BdewMakoApiDocumentsResponse>(json, jsonSerializerOptions)?.Data ?? [])
+                        .Where(d => d.ValidTo == null || d.ValidTo.Value.Year >= 2023) //do not mess with old docs
+                        .Where(d => d.Id != 7791) // hide a broken (and duplicate) document "UTILTS AHB 1.0 - konsolidierte Lesefassung mit Fehlerkorrekturen Stand: 18.02.2025"
                         .OrderBy(d => d.Title)
                         .ThenByDescending(d => d.ValidFrom)
                         .ToList();
+
+        foreach (var jsonDoc in onlineJsonDocs)
+        {
+            jsonDoc.Title = jsonDoc.Title.Trim();
+        }
 
         var pdfOnlineDocs = onlineJsonDocs.Where(d => d.FileType == "application/pdf" && d.IsFree).ToList();
 
@@ -127,7 +134,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
                     DocumentNameRaw = jsonDoc.Title,
                     ValidFrom = jsonDoc.ValidFrom,
                     ValidTo = jsonDoc.ValidTo,
-                    DocumentUri = new Uri(_baseUri, $"api/downloadFile/{jsonDoc.FileId}")
+                    DocumentUri = new Uri(_baseUri, $"api/downloadFile/{jsonDoc.FileId ?? throw new ArgumentNullException(nameof(jsonDoc.FileId))}")
                 })
                 .Where(tr => !tr.DocumentNameRaw.Contains("EDIFACT Utilities", StringComparison.OrdinalIgnoreCase))
                 .Where(d => !d.DocumentNameRaw.Contains("informatorische Lesefassung", StringComparison.OrdinalIgnoreCase))
@@ -173,9 +180,41 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
                 _log.Info($"saving session changes after {newEdiDocumentCount} new documents.");
                 session.SaveChanges();
             }
-        };
+        }
 
         if (newDocumentNames.Count != 0) _log.Warn($"New documents:\n{string.Join("\n", newDocumentNames)}");
+
+        //now the same for XML documents
+        {
+            var xmlOnlineDocs = onlineJsonDocs.Where(d => d.FileType == "text/xml").Select(OnlineJsonDocument2EdiXmlDocumentMapper.MapAndFix).ToList();
+            using var session = store?.OpenSession();
+            {
+                var existingXmlDocuments = session != null ? session.Query<EdiXmlDocument>().ToList() : [];
+                foreach (var xmlDoc in xmlOnlineDocs)
+                {
+                    var existingDoc = existingXmlDocuments.FirstOrDefault(d => d.FileId == xmlDoc.FileId);
+                    if (existingDoc != null)
+                    {
+                        //copy over values that might have changed
+                        existingDoc.ValidFrom = xmlDoc.ValidFrom;
+                        existingDoc.ValidTo = xmlDoc.ValidTo;
+                        existingDoc.MessageVersion = xmlDoc.MessageVersion;
+                        existingDoc.CleanedTitle = xmlDoc.CleanedTitle;
+                        existingDoc.OriginalTitle = xmlDoc.OriginalTitle;
+                    }
+                    else
+                    {
+                        //store new document
+                        session?.Store(xmlDoc);
+                        var (xmlStream, attachmentFilename) = await DownloadXmlContentAsync(xmlDoc).ConfigureAwait(false);
+                        xmlDoc.AttachmentFilename = attachmentFilename;
+                        session?.Advanced.Attachments.Store(xmlDoc, "xml", xmlStream);
+                        _log.Info($"Saved new XML document {xmlDoc}");
+                    }
+                }
+                session?.SaveChanges();
+            }
+        }
 
         if (store == null)
         {
@@ -184,6 +223,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
         }
 
         FixMessageVersions();
+        HideWrongDocuments();
         UpdateValidToValuesOnGeneralDocuments();
         UpdateValidToValuesOnEdiDocuments();
         UpdateIsLatestVersionOnDocuments();
@@ -205,6 +245,24 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
             doc.MessageTypeVersion = doc.GetRawMessageTypeVersion();
         }
 
+        session.SaveChanges();
+    }
+
+    private void HideWrongDocuments()
+    {
+        if (store == null) throw new InvalidOperationException("store is null");
+        using var session = store.OpenSession();
+
+        var year2025 = new DateTime(2025, 12, 31);
+        //refetch
+        var ediDocuments = session.Query<EdiDocument>()
+            .Where(e => e.IsMig && e.ContainedMessageTypes.Any(m => m == "MSCONS") && e.MessageTypeVersion == "2.4d" && e.ValidTo < year2025)
+            .ToList();
+
+        foreach (var doc in ediDocuments)
+        {
+            session.Delete(doc);
+        }
         session.SaveChanges();
     }
 
@@ -271,7 +329,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
             .Where(e => e.ContainedMessageTypes.Count != 0)
             .ToList();
 
-        //ediDocuments = ediDocuments.Where(e => e.ContainedMessageTypes?.Contains("UTILMD") == true && e.ContainedMessageTypes.Count()>1).ToList();
+        //ediDocuments = ediDocuments.Where(e => e.ContainedMessageTypes?.Contains("MSCONS") == true && e.IsMig).ToList();
 
         //determine what the latest document version is again
         var ediDocumentGroups = from doc in ediDocuments
@@ -299,7 +357,13 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
         {
             EdiDocument? lastDocument = null;
 
-            foreach (var ediDocument in ediDocumentGroup)
+            var ediDocumentGroupOrdered = ediDocumentGroup
+                .OrderByDescending(d => d.MessageTypeVersion)
+                .ThenByDescending(d => d.DocumentDate > d.ValidFrom ? d.DocumentDate : d.ValidFrom)
+                .ThenByDescending(d => d.Id)
+                .ToList();
+
+            foreach (var ediDocument in ediDocumentGroupOrdered)
             {
                 if (lastDocument != null && !ediDocument.ValidTo.HasValue)
                 {
@@ -445,6 +509,13 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
         _log.Trace(CultureInfo.InvariantCulture, "Stored copy of ressource {DocumentUri}", ediDocument.DocumentUri);
 
         return stream;
+    }
+
+    private async Task<(MemoryStream content, string filename)> DownloadXmlContentAsync(EdiXmlDocument xmlDoc)
+    {
+        var (stream, filename) = await httpClient.GetAsync(new Uri(_baseUri, $"api/downloadFile/{xmlDoc.FileId}")).ConfigureAwait(false);
+
+        return (stream, filename);
     }
 
     [GeneratedRegex(" {2,}")]
