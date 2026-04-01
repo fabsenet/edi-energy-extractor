@@ -65,10 +65,21 @@ static class Program
     {
         _log.Trace("Process called with {arguments}", options);
 
+        var environmentName = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production";
+
         var config = new ConfigurationBuilder()
             .AddJsonFile("appsettings.json")
+            .AddJsonFile($"appsettings.{environmentName}.json", true)
             .AddEnvironmentVariables("EdiDocuments_")
+            .AddEnvironmentVariables("EdiEnergy_")
+            .AddUserSecrets(Assembly.GetExecutingAssembly(), optional: true)
             .Build();
+
+        options = options with
+        {
+            Username = options.Username ?? config["Username"],
+            Password = options.Password ?? config["Password"],
+        };
 
         using var store = options.DryRun ? null : GetDocumentStore(config);
 
