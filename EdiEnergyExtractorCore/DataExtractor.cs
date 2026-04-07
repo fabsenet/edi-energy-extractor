@@ -329,7 +329,7 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
             .Where(e => e.ContainedMessageTypes.Count != 0)
             .ToList();
 
-        //ediDocuments = ediDocuments.Where(e => e.ContainedMessageTypes?.Contains("MSCONS") == true && e.IsMig).ToList();
+        //ediDocuments = ediDocuments.Where(e => e.ContainedMessageTypes?.Contains("UTILTS") == true && e.IsMig).ToList();
 
         //determine what the latest document version is again
         var ediDocumentGroups = from doc in ediDocuments
@@ -359,9 +359,22 @@ internal partial class DataExtractor(CacheForcableHttpClient httpClient, IDocume
 
             var ediDocumentGroupOrdered = ediDocumentGroup
                 .OrderByDescending(d => d.MessageTypeVersion)
-                .ThenByDescending(d => d.DocumentDate > d.ValidFrom ? d.DocumentDate : d.ValidFrom)
+                .ThenByDescending(d => d.DocumentDate)
                 .ThenByDescending(d => d.Id)
                 .ToList();
+
+            //var viewOnly = ediDocumentGroupOrdered.Select(d => new
+            //{
+            //    d.DocumentNameRaw,
+            //    d.DocumentName,
+            //    d.ValidFrom,
+            //    d.ValidTo,
+            //    d.DocumentDate,
+            //    Order1 = d.MessageTypeVersion,
+            //    Order2 = d.DocumentDate > d.ValidFrom ? d.DocumentDate : d.ValidFrom,
+            //    Order3 = d.Id,
+            //})
+            //    .ToList();
 
             foreach (var ediDocument in ediDocumentGroupOrdered)
             {

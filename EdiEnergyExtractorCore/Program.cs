@@ -16,7 +16,7 @@ using Raven.Client.Documents.Indexes;
 
 namespace EdiEnergyExtractor;
 
-record Options
+sealed record Options
 {
     [OptionalArgument(false, "prefercache", "Set to true to prefer cache over actual web access.")]
     public bool PreferCache { get; set; }
@@ -69,10 +69,10 @@ static class Program
 
         var config = new ConfigurationBuilder()
             .AddJsonFile("appsettings.json")
-            .AddJsonFile($"appsettings.{environmentName}.json", true)
+            .AddUserSecrets(Assembly.GetExecutingAssembly(), optional: true)
             .AddEnvironmentVariables("EdiDocuments_")
             .AddEnvironmentVariables("EdiEnergy_")
-            .AddUserSecrets(Assembly.GetExecutingAssembly(), optional: true)
+            .AddJsonFile($"appsettings.{environmentName}.json", true)
             .Build();
 
         options = options with
@@ -80,6 +80,10 @@ static class Program
             Username = options.Username ?? config["Username"],
             Password = options.Password ?? config["Password"],
         };
+
+        _log.Info("Environment: {environment}", environmentName);
+        _log.Info("BDEW Username: {Username}, Has Password? {HasPassword}", options.Username, !string.IsNullOrEmpty(options.Password));
+        _log.Info("Database URL: {DatabaseUrl}, Database Name: {DatabaseName}, Has Certificate? {HasCertificate}", config["DatabaseUrl"], config["DatabaseName"], !string.IsNullOrEmpty(config["DatabaseCertificate"]));
 
         using var store = options.DryRun ? null : GetDocumentStore(config);
 
