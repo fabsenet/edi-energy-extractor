@@ -191,3 +191,5 @@ ConnectionStrings.config
 .vs/
 launchSettings.jsonOutput
 /EdiEnergyExtractorCore/appsettings.Production.json
+
+EdiEnergyExtractorCore/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] MIG

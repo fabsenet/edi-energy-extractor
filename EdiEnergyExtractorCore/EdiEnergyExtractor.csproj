@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -17,13 +17,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="*-*-* MIG\**" />
     <Compile Remove="Output\**" />
+    <EmbeddedResource Remove="*-*-* MIG\**" />
     <EmbeddedResource Remove="Output\**" />
+    <None Remove="*-*-* MIG\**" />
     <None Remove="Output\**" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="CommandLine.Net" Version="2.3.0" />
     <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
     <PackageReference Include="iTextSharp" Version="5.5.13.5" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.5" />
@@ -34,6 +36,8 @@
     <PackageReference Include="NLog" Version="6.1.1" />
     <PackageReference Include="RavenDB.Client" Version="7.2.0" />
     <PackageReference Include="semver" Version="3.0.0" />
+    <PackageReference Include="Spectre.Console" Version="0.57.0" />
+    <PackageReference Include="Spectre.Console.Cli" Version="0.55.0" />
     <PackageReference Include="System.Configuration.ConfigurationManager" Version="10.0.5" />
   </ItemGroup>
 

@@ -6,14 +6,26 @@
 # Build
 dotnet build EdiEnergyExtractor.sln
 
-# Run (requires RavenDB running at http://127.0.0.1:8080)
+# Run the default `extract` command (requires RavenDB running at http://127.0.0.1:8080)
 dotnet run --project EdiEnergyExtractorCore
 
 # Run with options
 dotnet run --project EdiEnergyExtractorCore -- --prefercache   # use local cache, no web requests
 dotnet run --project EdiEnergyExtractorCore -- --dryrun        # download only, don't write to DB
 dotnet run --project EdiEnergyExtractorCore -- --username x --password y
+dotnet run --project EdiEnergyExtractorCore -- --environment Development
+
+# Run the `analyze` command (reads existing DB, prints check identifiers of future AHBs)
+dotnet run --project EdiEnergyExtractorCore -- analyze
+dotnet run --project EdiEnergyExtractorCore -- analyze --environment Production
 ```
+
+The CLI is built on **Spectre.Console.Cli**. `extract` is the default command, so running
+without a command name behaves like before. Both commands prompt for any parameter that was
+not supplied (environment, credentials, prefercache, dryrun) and then show a summary table with
+a yes/no confirmation before doing any work. Long-form options only — there are no short aliases.
+`--environment` accepts only `Development` or `Production`; if omitted it falls back to the
+`DOTNET_ENVIRONMENT` env var and otherwise prompts.
 
 There are no automated tests in this solution.
 
@@ -21,15 +33,20 @@ There are no automated tests in this solution.
 
 Single-project console app (`.NET 10 / Windows`) that scrapes the [BDEW MAKO API](https://bdew-mako.de/api/documents), downloads PDF/XML EDI specification documents, extracts metadata, and stores everything in a local **RavenDB** instance.
 
-**Execution flow in `Program.cs`:**
+**CLI entry point (`Program.cs`):** builds a Spectre.Console.Cli `CommandApp<ExtractCommand>` with two commands (`extract` default, `analyze`). Sets `de-DE` culture, wires NLog Fatal logging + debugger break (Release) / `PropagateExceptions` (Debug). Shared logic (environment resolution, config building, parameter prompting, summary/confirmation, `GetDocumentStore`) lives in `Commands/CliHelper.cs`.
 
-1. Parse CLI args → load `appsettings.json` + env vars + user secrets
-2. Connect to RavenDB, create indexes
-3. `RemoveDuplicatesFromStore()` – deduplicates by `DocumentUri`
-4. `DataExtractor.LoadFromWeb()` – fetches document list from BDEW API
-5. `DataExtractor.AnalyzeResult()` – core processing (see below)
-6. Save `ExportRunStatistics`
-7. `DownloadMigFilesLocally()` – writes latest MIG PDFs to dated folders on disk
+**`extract` command flow (`Commands/ExtractCommand.cs`):**
+
+1. Resolve environment → build `appsettings.json` + `appsettings.{env}.json` + env vars + user secrets
+2. Resolve/prompt credentials, prefercache, dryrun → confirm summary
+3. Connect to RavenDB, create indexes (unless `--dryrun`)
+4. `RemoveDuplicatesFromStore()` – deduplicates by `DocumentUri`
+5. `DataExtractor.LoadFromWeb()` – fetches document list from BDEW API
+6. `DataExtractor.AnalyzeResult()` – core processing (see below)
+7. Save `ExportRunStatistics`
+8. `DownloadMigFilesLocally()` – writes latest MIG PDFs to dated folders on disk
+
+**`analyze` command (`Commands/AnalyzeCommand.cs`):** resolves environment, confirms, connects to RavenDB and runs `ReadExistingDataForAnalysis()` – prints the check identifiers of future AHBs.
 
 **`AnalyzeResult()` phases:**
 
@@ -61,3 +78,5 @@ Single-project console app (`.NET 10 / Windows`) that scrapes the [BDEW MAKO API
 **RavenDB sessions** are opened per logical operation (not shared). The document store is a singleton injected into `DataExtractor`.
 
 **Global culture** is set to `de-DE` in `Program.cs` for German date/number formatting consistency.
+
+**CLI parameter handling.** Use Spectre.Console.Cli command/settings classes. Options are long-form only (no short aliases). Any parameter not supplied on the command line (or via env/secrets/config) is interactively prompted, then a summary table is shown with a yes/no confirmation before any work runs. Add new commands under `Commands/` and put shared resolution/prompt logic in `CliHelper`.
